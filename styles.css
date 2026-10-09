@@ -1,0 +1,96 @@
+/* ─── Status bar recorder ─── */
+.mn-status {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-variant-numeric: tabular-nums;
+}
+.mn-status .mn-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--text-muted);
+}
+.mn-status.is-recording .mn-dot {
+	background: var(--color-red);
+	animation: mn-pulse 1.4s ease-in-out infinite;
+}
+.mn-status.is-paused .mn-time {
+	color: var(--text-faint);
+}
+@keyframes mn-pulse {
+	50% { opacity: 0.35; }
+}
+.mn-meter {
+	position: relative;
+	width: 4px;
+	height: 12px;
+	border-radius: 2px;
+	background: var(--background-modifier-border);
+	overflow: hidden;
+}
+.mn-meter.is-off {
+	opacity: 0.35;
+}
+.mn-meter-fill {
+	position: absolute;
+	inset: 0;
+	background: var(--color-green);
+	transform-origin: bottom;
+	transform: scaleY(var(--level, 0));
+	transition: transform 120ms linear;
+}
+.mn-spin {
+	display: inline-flex;
+}
+.mn-spin svg {
+	width: 12px;
+	height: 12px;
+	animation: mn-rotate 1s linear infinite;
+}
+@keyframes mn-rotate {
+	to { transform: rotate(360deg); }
+}
+
+/* ─── Ribbon & header ─── */
+.mn-ribbon-recording,
+.mn-header-stop {
+	color: var(--color-red) !important;
+}
+
+/* ─── Modals ─── */
+.mn-speaker-modal .setting-item {
+	align-items: flex-start;
+}
+.mn-quotes {
+	margin-top: 4px;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+.mn-quote {
+	font-style: italic;
+	color: var(--text-muted);
+}
+.mn-evidence {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+.mn-notice-btn {
+	margin-top: 8px;
+}
+
+/* ─── Settings ─── */
+.mn-key-status {
+	margin-top: 4px;
+}
+.mn-key-status[data-state='ok'] {
+	color: var(--color-green);
+}
+.mn-key-status[data-state='error'] {
+	color: var(--color-red);
+}
+.mn-key-status[data-state='pending'],
+.mn-key-status[data-state='none'] {
+	color: var(--text-faint);
+}

@@ -1,0 +1,23 @@
+{
+  "name": "obsidian-meeting-notes",
+  "version": "0.1.0",
+  "description": "Record meetings, take notes, get a diarized transcript and an AI summary — natively in Obsidian.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "bun esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && bun esbuild.config.mjs production",
+    "test": "bun test tests"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.21.5",
+    "obsidian": "latest",
+    "tslib": "^2.6.2",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "@breezystack/lamejs": "^1.2.7"
+  }
+}

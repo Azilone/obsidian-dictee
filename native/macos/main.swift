@@ -1,0 +1,250 @@
+// meeting-tap — streams system audio output as raw PCM (s16le, mono, 16 kHz) on stdout.
+// Status and errors are JSON lines on stderr. Exits when stdin closes (i.e. when Obsidian goes away).
+//
+// macOS 14.4+: Core Audio process tap on all processes + private aggregate device.
+
+import CoreAudio
+import Darwin
+import Foundation
+
+let OUT_RATE: Double = 16000
+
+func emit(_ obj: [String: Any]) {
+	guard let data = try? JSONSerialization.data(withJSONObject: obj) else { return }
+	FileHandle.standardError.write(data)
+	FileHandle.standardError.write("\n".data(using: .utf8)!)
+}
+
+func fail(_ message: String, _ status: OSStatus = 0) -> Never {
+	emit(["event": "error", "message": message, "status": Int(status)])
+	exit(1)
+}
+
+// ─── Responsibility disclaim ───
+// When launched by Obsidian, macOS attributes the audio-capture permission to Obsidian, which
+// lacks the usage description. Re-spawning ourselves "disclaimed" makes this binary its own
+// responsible process, so the TCC prompt (and the embedded Info.plist) are ours.
+func respawnDisclaimed() -> Never? {
+	if ProcessInfo.processInfo.environment["MEETING_TAP_CHILD"] != nil { return nil }
+	typealias Disclaim = @convention(c) (UnsafeMutablePointer<posix_spawnattr_t?>, Int32) -> Int32
+	guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_spawnattrs_setdisclaim") else {
+		return nil
+	}
+	let disclaim = unsafeBitCast(sym, to: Disclaim.self)
+	var attr: posix_spawnattr_t?
+	posix_spawnattr_init(&attr)
+	_ = disclaim(&attr, 1)
+	let path = CommandLine.arguments[0]
+	let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+	var argv: [UnsafeMutablePointer<CChar>?] = CommandLine.arguments.map { strdup($0) } + [nil]
+	var env = ProcessInfo.processInfo.environment
+	env["MEETING_TAP_CHILD"] = "1"
+	var envp: [UnsafeMutablePointer<CChar>?] = env.map { strdup("\($0.key)=\($0.value)") } + [nil]
+	var pid: pid_t = 0
+	let rc = posix_spawn(&pid, resolved, nil, &attr, &argv, &envp)
+	if rc != 0 { return nil }
+	// Forward termination to the child.
+	for sig in [SIGTERM, SIGINT, SIGHUP] {
+		signal(sig, SIG_IGN)
+		let src = DispatchSource.makeSignalSource(signal: sig)
+		src.setEventHandler { kill(pid, SIGTERM) }
+		src.resume()
+		_ = Unmanaged.passRetained(src)
+	}
+	DispatchQueue.global().async {
+		var status: Int32 = 0
+		waitpid(pid, &status, 0)
+		exit((status >> 8) & 0xff)
+	}
+	dispatchMain()
+}
+
+// ─── Core Audio helpers ───
+func getProp<T>(_ obj: AudioObjectID, _ selector: AudioObjectPropertySelector, _ initial: T) -> (OSStatus, T) {
+	var addr = AudioObjectPropertyAddress(
+		mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+	var value = initial
+	var size = UInt32(MemoryLayout<T>.size)
+	let st = withUnsafeMutablePointer(to: &value) { AudioObjectGetPropertyData(obj, &addr, 0, nil, &size, $0) }
+	return (st, value)
+}
+
+func defaultOutputUID() -> String {
+	let (st, dev) = getProp(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultOutputDevice, AudioObjectID(0))
+	if st != noErr { fail("No default output device", st) }
+	var addr = AudioObjectPropertyAddress(
+		mSelector: kAudioDevicePropertyDeviceUID, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+	var uid: Unmanaged<CFString>?
+	var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+	let st2 = AudioObjectGetPropertyData(dev, &addr, 0, nil, &size, &uid)
+	if st2 != noErr || uid == nil { fail("Cannot read output device UID", st2) }
+	return uid!.takeRetainedValue() as String
+}
+
+// ─── Main ───
+if CommandLine.arguments.contains("--version") {
+	print("meeting-tap 0.1.0")
+	exit(0)
+}
+respawnDisclaimed()
+
+guard #available(macOS 14.4, *) else { fail("macOS 14.4 or later is required for system audio capture") }
+
+let tapDesc = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
+tapDesc.uuid = UUID()
+tapDesc.name = "Meeting Notes tap"
+tapDesc.isPrivate = true
+tapDesc.muteBehavior = .unmuted
+
+var tapID = AudioObjectID(kAudioObjectUnknown)
+var st = AudioHardwareCreateProcessTap(tapDesc, &tapID)
+if st != noErr { fail("Cannot create process tap (permission denied?)", st) }
+
+let outputUID = defaultOutputUID()
+let aggDesc: [String: Any] = [
+	kAudioAggregateDeviceNameKey: "Meeting Notes capture",
+	kAudioAggregateDeviceUIDKey: UUID().uuidString,
+	kAudioAggregateDeviceMainSubDeviceKey: outputUID,
+	kAudioAggregateDeviceIsPrivateKey: true,
+	kAudioAggregateDeviceIsStackedKey: false,
+	kAudioAggregateDeviceTapAutoStartKey: true,
+	kAudioAggregateDeviceSubDeviceListKey: [[kAudioSubDeviceUIDKey: outputUID]],
+	kAudioAggregateDeviceTapListKey: [
+		[kAudioSubTapDriftCompensationKey: true, kAudioSubTapUIDKey: tapDesc.uuid.uuidString]
+	],
+]
+var aggID = AudioObjectID(kAudioObjectUnknown)
+st = AudioHardwareCreateAggregateDevice(aggDesc as CFDictionary, &aggID)
+if st != noErr { fail("Cannot create aggregate device", st) }
+
+func cleanup() {
+	AudioHardwareDestroyAggregateDevice(aggID)
+	AudioHardwareDestroyProcessTap(tapID)
+}
+
+let (fst, asbd) = getProp(tapID, kAudioTapPropertyFormat, AudioStreamBasicDescription())
+if fst != noErr { cleanup(); fail("Cannot read tap format", fst) }
+if asbd.mFormatID != kAudioFormatLinearPCM || asbd.mFormatFlags & kAudioFormatFlagIsFloat == 0 || asbd.mBitsPerChannel != 32 {
+	cleanup(); fail("Unsupported tap format")
+}
+// The tap's advertised format can disagree with the rate the output device actually runs at
+// (e.g. 48 kHz advertised, 44.1 kHz delivered); the aggregate device's nominal rate is the truth.
+let (rst, deviceRate) = getProp(aggID, kAudioDevicePropertyNominalSampleRate, Float64(0))
+var srcRate = rst == noErr && deviceRate > 0 ? deviceRate : asbd.mSampleRate
+let channels = Int(max(1, asbd.mChannelsPerFrame))
+let nonInterleaved = asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved != 0
+
+// Downmix + decimate by averaging over each output period (stateful across callbacks, so no
+// sample is ever dropped or duplicated). Plenty for speech at 16 kHz.
+let ratio = srcRate / OUT_RATE
+var phase = 0.0
+var written = 0
+var acc: Float = 0
+var accCount = 0
+
+let stdout = FileHandle.standardOutput
+let ioQueue = DispatchQueue(label: "meeting-tap.io", qos: .userInitiated)
+let debug = ProcessInfo.processInfo.environment["MEETING_TAP_DEBUG"] != nil
+let debugStart = Date()
+var procID: AudioDeviceIOProcID?
+st = AudioDeviceCreateIOProcIDWithBlock(&procID, aggID, ioQueue) { _, inData, _, _, _ in
+	let abl = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inData))
+	guard abl.count > 0, let first = abl[0].mData else { return }
+	let frames: Int
+	var planes: [UnsafePointer<Float>] = []
+	if nonInterleaved {
+		frames = Int(abl[0].mDataByteSize) / 4
+		for i in 0..<min(channels, abl.count) {
+			if let d = abl[i].mData { planes.append(UnsafePointer(d.assumingMemoryBound(to: Float.self))) }
+		}
+	} else {
+		frames = Int(abl[0].mDataByteSize) / (4 * channels)
+	}
+	if frames == 0 { return }
+	if debug {
+		var peak: Float = 0
+		let fp = UnsafePointer(first.assumingMemoryBound(to: Float.self))
+		for i in 0..<(Int(abl[0].mDataByteSize) / 4) { peak = max(peak, abs(fp[i])) }
+		emit(["event": "debug", "t": Date().timeIntervalSince(debugStart), "buffers": abl.count, "bytes": Int(abl[0].mDataByteSize), "ch0": Int(abl[0].mNumberChannels), "frames": frames, "peak": Double(peak)])
+	}
+	let interleaved = UnsafePointer(first.assumingMemoryBound(to: Float.self))
+	var out = [Int16]()
+	out.reserveCapacity(Int(Double(frames) / ratio) + 2)
+	for f in 0..<frames {
+		var v: Float = 0
+		if nonInterleaved {
+			for p in planes { v += p[f] }
+			v /= Float(max(1, planes.count))
+		} else {
+			for c in 0..<channels { v += interleaved[f * channels + c] }
+			v /= Float(channels)
+		}
+		acc += v
+		accCount += 1
+		phase += 1
+		if phase >= ratio {
+			phase -= ratio
+			let m = max(-1, min(1, acc / Float(accCount)))
+			out.append(Int16(m < 0 ? m * 32768 : m * 32767))
+			acc = 0
+			accCount = 0
+		}
+	}
+	if out.isEmpty { return }
+	written += out.count
+	out.withUnsafeBytes { stdout.write(Data($0)) }
+}
+if st != noErr { cleanup(); fail("Cannot create IO proc", st) }
+
+st = AudioDeviceStart(aggID, procID)
+if st != noErr { cleanup(); fail("Cannot start capture", st) }
+// Core Audio only calls us while something plays. Fill the gaps with silence so the stream
+// always matches the wall clock (the plugin relies on sample count = meeting time).
+let wallStart = DispatchTime.now()
+let filler = DispatchSource.makeTimerSource(queue: ioQueue)
+filler.schedule(deadline: .now() + 0.2, repeating: 0.1)
+filler.setEventHandler {
+	let elapsed = Double(DispatchTime.now().uptimeNanoseconds - wallStart.uptimeNanoseconds) / 1e9
+	let expected = Int(elapsed * OUT_RATE)
+	let missing = expected - written - Int(OUT_RATE * 0.15)
+	if missing > 0 {
+		if debug { emit(["event": "fill", "t": elapsed, "samples": missing]) }
+		written += missing
+		stdout.write(Data(count: missing * 2))
+		phase = 0
+		acc = 0
+		accCount = 0
+	}
+}
+filler.resume()
+emit(["event": "started", "sampleRate": Int(OUT_RATE), "channels": 1, "format": "s16le", "sourceRate": srcRate, "sourceChannels": channels])
+
+func stop(_ code: Int32) -> Never {
+	AudioDeviceStop(aggID, procID)
+	if let p = procID { AudioDeviceDestroyIOProcID(aggID, p) }
+	cleanup()
+	emit(["event": "stopped"])
+	exit(code)
+}
+
+signal(SIGPIPE, SIG_IGN)
+for sig in [SIGTERM, SIGINT, SIGHUP] {
+	signal(sig, SIG_IGN)
+	let src = DispatchSource.makeSignalSource(signal: sig)
+	src.setEventHandler { stop(0) }
+	src.resume()
+	_ = Unmanaged.passRetained(src)
+}
+// Stop when the parent closes our stdin.
+Thread.detachNewThread {
+	var buf = [UInt8](repeating: 0, count: 256)
+	while read(0, &buf, buf.count) > 0 {}
+	stop(0)
+}
+// Optional duration for testing: --seconds N
+if let i = CommandLine.arguments.firstIndex(of: "--seconds"), i + 1 < CommandLine.arguments.count,
+	let secs = Double(CommandLine.arguments[i + 1])
+{
+	DispatchQueue.main.asyncAfter(deadline: .now() + secs) { stop(0) }
+}
+dispatchMain()
