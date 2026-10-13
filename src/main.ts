@@ -23,6 +23,7 @@ import { DEFAULT_SETTINGS, MeetingSettingTab, type MeetingSettings } from './set
 import { ImportMeetingModal, SpeakerNamesModal, StartMeetingModal, type ImportOptions, type StartOptions } from './ui/modals';
 import { RecorderOverlay, type OverlayAction } from './ui/overlay';
 import { RECORDER_VIEW, RecorderView } from './ui/recorder-view';
+import { NoAccessError, listNewMemos, memoKind } from './recorder/voice-memos';
 
 const SECRET_ID = 'meeting-notes-openrouter';
 
@@ -185,6 +186,10 @@ export default class MeetingNotesPlugin extends Plugin {
 					if (inbox(f)) this.offerImport([f]);
 				}),
 			);
+			if (Platform.isDesktopApp && Platform.isMacOS) {
+				void this.checkVoiceMemos();
+				this.registerInterval(window.setInterval(() => void this.checkVoiceMemos(), 2 * 60_000));
+			}
 			const dir = this.app.vault.getAbstractFileByPath(normalizePath(this.settings.importFolder || '/'));
 			if (dir instanceof TFolder) {
 				const waiting = dir.children.filter(inbox);
@@ -206,6 +211,53 @@ export default class MeetingNotesPlugin extends Plugin {
 				n.hide();
 				for (const f of files) await this.importAudio(f);
 			});
+	}
+
+	private memoCheck: Promise<void> | null = null;
+	private memoAccessWarned = false;
+
+	/** New Voice Memos from the iPhone → journal entries or meetings, without asking. */
+	checkVoiceMemos(explicit = false): Promise<void> {
+		if (!this.settings.voiceMemos || !this.apiKey()) return Promise.resolve();
+		this.memoCheck ??= this.importVoiceMemos(explicit).finally(() => (this.memoCheck = null));
+		return this.memoCheck;
+	}
+
+	private async importVoiceMemos(explicit: boolean) {
+		const st = this.settings;
+		let memos;
+		try {
+			memos = listNewMemos(st.voiceMemosDir, new Date(st.voiceMemosSince || Date.now()), new Set(st.voiceMemosSeen));
+		} catch (e) {
+			if (!(e instanceof NoAccessError) || (this.memoAccessWarned && !explicit)) return;
+			this.memoAccessWarned = true;
+			const n = new Notice('', 0);
+			n.messageEl.empty();
+			n.messageEl.createDiv({
+				text: 'Pour lire les mémos Dictaphone, donne l’accès complet au disque à Obsidian (puis redémarre Obsidian).',
+			});
+			n.messageEl.createEl('button', { text: 'Ouvrir les réglages', cls: 'mod-cta mn-notice-btn' }).addEventListener('click', () => {
+				n.hide();
+				// eslint-disable-next-line @typescript-eslint/no-var-requires
+				require('electron').shell?.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles');
+			});
+			return;
+		}
+		for (const memo of memos) {
+			if (!this.settings.voiceMemos) return;
+			// Marked first: a memo that fails is kept in its folder for « Retraiter », never re-imported in a loop.
+			st.voiceMemosSeen.push(memo.name);
+			await this.saveSettings();
+			const kind = memoKind(memo, st.meetingMinMinutes);
+			const templates = await this.templateNames();
+			await this.importAudio(memo.path, {
+				kind,
+				title: kind === 'meeting' ? memo.title || 'Réunion' : 'Journal',
+				startedAt: memo.recordedAt.toISOString(),
+				language: st.language,
+				template: st.lastTemplate || templates[0],
+			});
+		}
 	}
 
 	async openRecorder() {
@@ -581,7 +633,8 @@ export default class MeetingNotesPlugin extends Plugin {
 
 	// ─── Processing ───
 
-	private async runPipeline(state: MeetingState, queue: TranscriptionQueue) {
+	/** `background`: nobody is waiting (auto-import) — no questions, nothing opened, a notice to open it. */
+	private async runPipeline(state: MeetingState, queue: TranscriptionQueue, background = false) {
 		const { folder } = state;
 		const notice = new Notice('', 0);
 		notice.messageEl.addClass('mn-notice');
@@ -595,15 +648,26 @@ export default class MeetingNotesPlugin extends Plugin {
 		try {
 			const res = await processMeeting(this.app, this.api, this.settings, state, queue, {
 				progress: update,
-				askNames: this.settings.askSpeakerNames
+				askNames: this.settings.askSpeakerNames && !background
 					? (people: Person[], utts: Utterance[]) =>
 							new Promise((resolve) => new SpeakerNamesModal(this.app, people, utts, resolve).open())
 					: undefined,
 			});
 			notice.hide();
 			const done = state.kind === 'voice' ? 'Ajouté à la note du jour' : `Compte rendu prêt : ${state.title}`;
-			new Notice(`${done}${res.cost ? ` (≈ ${res.cost.toFixed(3)} $ de transcription)` : ''}`);
-			await this.app.workspace.getLeaf(false).openFile(res.summary);
+			const msg = `${done}${res.cost ? ` (≈ ${res.cost.toFixed(3)} $ de transcription)` : ''}`;
+			if (!background) {
+				new Notice(msg);
+				await this.app.workspace.getLeaf(false).openFile(res.summary);
+			} else {
+				const n = new Notice('', 15000);
+				n.messageEl.empty();
+				n.messageEl.createDiv({ text: `🎙️ ${msg}` });
+				n.messageEl.createEl('button', { text: 'Ouvrir', cls: 'mod-cta mn-notice-btn' }).addEventListener('click', () => {
+					n.hide();
+					void this.app.workspace.getLeaf(false).openFile(res.summary);
+				});
+			}
 		} catch (e) {
 			notice.hide();
 			state.status = 'error';
@@ -656,8 +720,9 @@ export default class MeetingNotesPlugin extends Plugin {
 	 * Build a meeting or a voice note from an audio file, in the vault or (desktop) anywhere on
 	 * disk. A file from the import folder is moved into the new folder, so it is handled once.
 	 */
-	async importAudio(source: TFile | string) {
+	async importAudio(source: TFile | string, preset?: ImportOptions) {
 		if (!this.requireKey()) return;
+		const background = !!preset;
 		let name: string, base: string, ext: string, mtime: Date;
 		if (source instanceof TFile) {
 			({ name, basename: base, extension: ext } = source);
@@ -676,7 +741,7 @@ export default class MeetingNotesPlugin extends Plugin {
 		}
 		ext = ext.toLowerCase() || 'm4a';
 		const templates = await this.templateNames();
-		const opts = await new Promise<ImportOptions | null>((resolve) =>
+		const opts = preset ?? await new Promise<ImportOptions | null>((resolve) =>
 			new ImportMeetingModal(
 				this.app,
 				name,
@@ -697,10 +762,12 @@ export default class MeetingNotesPlugin extends Plugin {
 		const folder = await this.newMeetingFolder(opts.title, window.moment(opts.startedAt), kind);
 		if (kind === 'meeting') {
 			await this.app.vault.create(normalizePath(`${folder}/Notes.md`), `# ${opts.title}\n\n`);
-			this.settings.lastTemplate = opts.template;
+			if (!background) this.settings.lastTemplate = opts.template;
 		}
-		this.settings.lastKind = kind;
-		await this.saveSettings();
+		if (!background) {
+			this.settings.lastKind = kind;
+			await this.saveSettings();
+		}
 
 		const state: MeetingState = {
 			version: 1,
@@ -747,7 +814,7 @@ export default class MeetingNotesPlugin extends Plugin {
 			);
 			notice.hide();
 			this.processing.delete(folder);
-			await this.runPipeline(state, queue);
+			await this.runPipeline(state, queue, background);
 		} catch (e) {
 			notice.hide();
 			this.processing.delete(folder);

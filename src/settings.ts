@@ -1,7 +1,8 @@
-import { App, PluginSettingTab, Setting } from 'obsidian';
+import { App, Platform, PluginSettingTab, Setting } from 'obsidian';
 import type MeetingNotesPlugin from './main';
 import { checkKey } from './openrouter';
 import { listMicrophones } from './recorder/sources';
+import { VOICE_MEMOS_DIR } from './recorder/voice-memos';
 
 export const LANGUAGES: Record<string, string> = {
 	'': 'Détection automatique',
@@ -51,6 +52,15 @@ export interface MeetingSettings {
 	dailyNoteFormat: string;
 	/** Last choice on the recorder screen. */
 	lastKind: 'meeting' | 'voice';
+	/** macOS: process new Voice Memos (synced from the iPhone) automatically. */
+	voiceMemos: boolean;
+	voiceMemosDir: string;
+	/** Only memos recorded after this (ISO), so turning it on does not import the whole history. */
+	voiceMemosSince: string;
+	/** File names already handled. */
+	voiceMemosSeen: string[];
+	/** A memo at least this long (min) is a meeting, shorter ones go to the journal (0 = never by length). */
+	meetingMinMinutes: number;
 }
 
 export const DEFAULT_SETTINGS: MeetingSettings = {
@@ -78,6 +88,11 @@ export const DEFAULT_SETTINGS: MeetingSettings = {
 	voiceFolder: 'Notes vocales',
 	dailyNoteFormat: '',
 	lastKind: 'voice',
+	voiceMemos: false,
+	voiceMemosDir: VOICE_MEMOS_DIR,
+	voiceMemosSince: '',
+	voiceMemosSeen: [],
+	meetingMinMinutes: 15,
 };
 
 export class MeetingSettingTab extends PluginSettingTab {
@@ -197,6 +212,35 @@ export class MeetingSettingTab extends PluginSettingTab {
 						await save();
 					}),
 			);
+
+		if (Platform.isDesktopApp && Platform.isMacOS) {
+			new Setting(containerEl).setName('Mémos Dictaphone (iPhone)').setHeading();
+			new Setting(containerEl)
+				.setName('Traiter les nouveaux mémos automatiquement')
+				.setDesc(
+					'Enregistre avec Dictaphone sur l’iPhone (écran verrouillé, pause…) : chaque nouveau mémo synchronisé par iCloud est transcrit et rangé, toutes les 2 minutes tant qu’Obsidian est ouvert. Seuls les mémos enregistrés après l’activation sont pris. Obsidian a besoin de l’accès complet au disque.',
+				)
+				.addToggle((t) =>
+					t.setValue(s.voiceMemos).onChange(async (v) => {
+						s.voiceMemos = v;
+						if (v && !s.voiceMemosSince) s.voiceMemosSince = new Date().toISOString();
+						await save();
+						if (v) void this.plugin.checkVoiceMemos(true);
+					}),
+				);
+			new Setting(containerEl)
+				.setName('Réunion à partir de (min)')
+				.setDesc('Un mémo plus long, ou dont le titre contient « réunion », devient une réunion. Les autres vont dans la note du jour. 0 = seulement par le titre.')
+				.addText((t) => {
+					t.inputEl.type = 'number';
+					t.inputEl.min = '0';
+					t.setValue(String(s.meetingMinMinutes)).onChange(async (v) => {
+						const n = Number(v);
+						s.meetingMinMinutes = Number.isFinite(n) && n >= 0 ? n : DEFAULT_SETTINGS.meetingMinMinutes;
+						await save();
+					});
+				});
+		}
 
 		new Setting(containerEl).setName('Overlay').setHeading();
 
