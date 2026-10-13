@@ -51,7 +51,7 @@ export default class MeetingNotesPlugin extends Plugin {
 
 		this.addSettingTab(new MeetingSettingTab(this.app, this));
 		this.registerView(RECORDER_VIEW, (leaf) => new RecorderView(leaf, this));
-		this.ribbonEl = this.addRibbonIcon('mic', 'Démarrer une réunion', () => {
+		this.ribbonEl = this.addRibbonIcon('mic', Platform.isMobile ? 'Enregistreur' : 'Démarrer une réunion', () => {
 			// On the phone the recorder screen (big button) is the way in.
 			if (Platform.isMobile) void this.openRecorder();
 			else if (this.session) this.showRecorderMenu(this.ribbonEl);
@@ -319,6 +319,8 @@ export default class MeetingNotesPlugin extends Plugin {
 	}
 
 	async startMeeting() {
+		// On the phone, everything goes through the recorder screen (big button).
+		if (Platform.isMobile) return this.openRecorder();
 		if (this.session || !this.requireKey()) return;
 		const templates = await this.templateNames();
 		new StartMeetingModal(
@@ -871,7 +873,7 @@ export default class MeetingNotesPlugin extends Plugin {
 		}
 		el.toggle(!!s || this.processing.size > 0);
 		setIcon(this.ribbonEl, s ? 'square' : 'mic');
-		this.ribbonEl.setAttribute('aria-label', s ? 'Réunion en cours' : 'Démarrer une réunion');
+		this.ribbonEl.setAttribute('aria-label', s ? 'Enregistrement en cours' : Platform.isMobile ? 'Enregistreur' : 'Démarrer une réunion');
 		this.ribbonEl.toggleClass('mn-ribbon-recording', !!s);
 		this.syncPlayers();
 		for (const leaf of this.app.workspace.getLeavesOfType(RECORDER_VIEW)) {
