@@ -26,6 +26,9 @@ import { RECORDER_VIEW, RecorderView } from './ui/recorder-view';
 import { NoAccessError, listNewMemos, memoKind } from './recorder/voice-memos';
 
 /** Kept from the plugin's former name so the stored OpenRouter key survives the rename. */
+/** Audio formats Obsidian plays in a note; others are converted to MP3 on import. */
+const PLAYABLE = ['m4a', 'mp3', 'wav', 'ogg', 'oga', 'opus', 'webm', 'flac', 'mp4', 'aac'];
+
 const SECRET_ID = 'meeting-notes-openrouter';
 
 export default class DicteePlugin extends Plugin {
@@ -722,7 +725,7 @@ export default class DicteePlugin extends Plugin {
 		const res = await remote.dialog.showOpenDialog({
 			title: 'Importer un enregistrement',
 			properties: ['openFile'],
-			filters: [{ name: 'Audio', extensions: ['m4a', 'mp3', 'wav', 'aac', 'ogg', 'opus', 'webm', 'mp4', 'flac', 'aiff', 'caf'] }],
+			filters: [{ name: 'Audio', extensions: ['m4a', 'mp3', 'wav', 'aac', 'ogg', 'opus', 'webm', 'mp4', 'flac', 'aiff', 'caf', 'qta', 'mov'] }],
 		});
 		const abs: string | undefined = res?.filePaths?.[0];
 		if (!abs) return;
@@ -816,10 +819,12 @@ export default class DicteePlugin extends Plugin {
 			if (file && inbox) {
 				await this.app.fileManager.renameFile(file, dest);
 				file = this.app.vault.getAbstractFileByPath(dest) as TFile;
-			} else if (this.settings.keepAudio) {
+			} else if (this.settings.keepAudio && PLAYABLE.includes(ext)) {
 				const bytes = file ? await this.app.vault.readBinary(file) : this.readDiskFile(source as string);
 				await this.app.vault.adapter.writeBinary(dest, bytes);
 			}
+			// Formats Obsidian can't play (Voice Memos `.qta`…) are kept as an MP3 made while decoding.
+			const archive = this.settings.keepAudio && !PLAYABLE.includes(ext) && !(file && inbox) ? normalizePath(`${folder}/audio.mp3`) : undefined;
 			const readBytes = async () => (file ? this.app.vault.readBinary(file) : this.readDiskFile(source as string));
 			const basePath = this.vaultBasePath();
 			const abs = file ? (basePath ? `${basePath}/${file.path}` : '') : (source as string);
@@ -828,6 +833,7 @@ export default class DicteePlugin extends Plugin {
 					onPcm,
 					progress: (r) => step(`Découpage de l’audio… ${Math.round(r * 100)} %`),
 				}),
+				archive,
 			);
 			this.processing.delete(folder);
 			await this.runPipeline(state, queue, background, notice);

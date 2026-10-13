@@ -90,7 +90,8 @@ func decodeFile(_ path: String) -> Never {
 	do {
 		file = try AVAudioFile(forReading: url)
 	} catch {
-		fail("Impossible d'ouvrir le fichier audio : \(error.localizedDescription)")
+		// QuickTime containers (Voice Memos `.qta`, `.mov`) are not audio files for AVAudioFile.
+		decodeAsset(url)
 	}
 	guard let outFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: OUT_RATE, channels: 1, interleaved: true),
 		let converter = AVAudioConverter(from: file.processingFormat, to: outFormat)
@@ -146,6 +147,56 @@ func decodeFile(_ path: String) -> Never {
 		}
 		if status == .endOfStream { break }
 	}
+	emit(["event": "done"])
+	exit(0)
+}
+
+/// Fallback for containers AVAudioFile can't open: AVAssetReader mixes every audio track to s16le 16 kHz mono.
+func decodeAsset(_ url: URL) -> Never {
+	let asset = AVURLAsset(url: url)
+	let sem = DispatchSemaphore(value: 0)
+	var tracks: [AVAssetTrack] = []
+	var duration = 0.0
+	Task {
+		tracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
+		duration = (try? await asset.load(.duration).seconds) ?? 0
+		sem.signal()
+	}
+	sem.wait()
+	guard !tracks.isEmpty else { fail("Aucune piste audio dans le fichier") }
+	let reader: AVAssetReader
+	do { reader = try AVAssetReader(asset: asset) } catch { fail("Impossible d'ouvrir le fichier audio : \(error.localizedDescription)") }
+	let output = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: [
+		AVFormatIDKey: kAudioFormatLinearPCM,
+		AVSampleRateKey: OUT_RATE,
+		AVNumberOfChannelsKey: 1,
+		AVLinearPCMBitDepthKey: 16,
+		AVLinearPCMIsFloatKey: false,
+		AVLinearPCMIsBigEndianKey: false,
+		AVLinearPCMIsNonInterleaved: false,
+	])
+	guard reader.canAdd(output) else { fail("Format audio non pris en charge") }
+	reader.add(output)
+	guard reader.startReading() else { fail("Lecture impossible : \(reader.error?.localizedDescription ?? "?")") }
+	emit(["event": "started", "sampleRate": Int(OUT_RATE), "channels": 1, "format": "s16le", "frames": Int(duration * OUT_RATE)])
+	let stdout = FileHandle.standardOutput
+	var written = 0.0
+	var lastReport = 0.0
+	while let sample = output.copyNextSampleBuffer() {
+		guard let block = CMSampleBufferGetDataBuffer(sample) else { continue }
+		let length = CMBlockBufferGetDataLength(block)
+		var data = Data(count: length)
+		data.withUnsafeMutableBytes { _ = CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: length, destination: $0.baseAddress!) }
+		stdout.write(data)
+		written += Double(length / 2) / OUT_RATE
+		let ratio = duration > 0 ? min(1, written / duration) : 0
+		if ratio - lastReport >= 0.02 {
+			lastReport = ratio
+			emit(["event": "progress", "ratio": ratio])
+		}
+	}
+	if reader.status == .failed { fail("Lecture impossible : \(reader.error?.localizedDescription ?? "?")") }
+	emit(["event": "progress", "ratio": 1])
 	emit(["event": "done"])
 	exit(0)
 }

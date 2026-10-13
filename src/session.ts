@@ -452,14 +452,28 @@ export async function importRecording(
 	settings: MeetingSettings,
 	state: MeetingState,
 	decode: (onPcm: (pcm: Int16Array) => void) => Promise<void>,
+	/** Also write the decoded audio as an MP3 here (vault path), for sources Obsidian can't play. */
+	archivePath?: string,
 ): Promise<TranscriptionQueue> {
 	await app.vault.adapter.mkdir(normalizePath(`${state.folder}/${RAW}`));
 	await saveState(app, state);
 	const queue = new TranscriptionQueue(app, api, settings, state);
 	const writer = new ChunkWriter(app, state, queue);
 	const track = new Track('mic', new Mp3ChunkSink(writer), chunkOptions(settings));
-	await decode((pcm) => track.push(pcm));
+	const archive = archivePath ? new AudioArchive(app, archivePath, ['mic']) : null;
+	let pending = 0;
+	await decode((pcm) => {
+		track.push(pcm);
+		if (!archive) return;
+		archive.push('mic', pcm);
+		// Flush to disk every ~30 s of audio so a long file never sits in memory.
+		if ((pending += pcm.length) >= 30 * SAMPLE_RATE) {
+			pending = 0;
+			void archive.pump();
+		}
+	});
 	track.flush();
+	await archive?.pump(true);
 	await writer.flush();
 	state.duration = track.position;
 	state.status = 'processing';

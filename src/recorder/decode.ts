@@ -7,7 +7,7 @@
 import { HelperSource, type PcmHandler } from './sources';
 import { SAMPLE_RATE } from './track';
 
-export const AUDIO_EXTENSIONS = ['m4a', 'mp3', 'wav', 'aac', 'ogg', 'oga', 'opus', 'webm', 'mp4', 'flac', 'aiff', 'aif', 'caf'];
+export const AUDIO_EXTENSIONS = ['m4a', 'mp3', 'wav', 'aac', 'ogg', 'oga', 'opus', 'webm', 'mp4', 'flac', 'aiff', 'aif', 'caf', 'qta', 'mov'];
 
 export function isAudioPath(path: string): boolean {
 	const ext = path.split('.').pop()?.toLowerCase() ?? '';

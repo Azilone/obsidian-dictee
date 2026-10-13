@@ -74,7 +74,8 @@ export function listNewMemos(dir: string, since: Date, seen: Set<string>): Voice
 		if (code === 'ENOENT') return [];
 		throw e;
 	}
-	const fresh = names.filter((n) => /\.m4a$/i.test(n) && !seen.has(n));
+	// `.qta`: Voice Memos' QuickTime format (iOS 18+, recordings with a transcript).
+	const fresh = names.filter((n) => /\.(m4a|qta)$/i.test(n) && !seen.has(n));
 	if (!fresh.length) return [];
 	const db = readDatabase(root);
 	const out: VoiceMemo[] = [];
