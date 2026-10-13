@@ -6,6 +6,7 @@ import { micIsMe, readChunkResult, saveState, type MeetingState, type Transcript
 import type { MeetingSettings } from '../settings';
 import { LANGUAGES } from '../settings';
 import { formatClock, mergeChunks, toRawLines, type Utterance } from './merge';
+import { parseEntry, renderEntry, type JournalEntry } from './journal';
 import { SPEAKERS_PROMPT, cleanPrompt, summaryPrompt, titlePrompt, voicePrompt } from './prompts';
 import { nameMap, normalizePeople, type Person } from './speakers';
 
@@ -130,12 +131,16 @@ export async function processMeeting(
 
 	if (state.kind === 'voice') {
 		hooks.progress('Résumé pour le journal…');
-		const entry = await api.chat(llm, [
-			{ role: 'system', content: voicePrompt(settings.summaryLanguage) },
-			{ role: 'user', content: transcript },
-		]);
+		const raw = await api.chat(
+			llm,
+			[
+				{ role: 'system', content: voicePrompt(settings.summaryLanguage) },
+				{ role: 'user', content: transcript },
+			],
+			{ json: true },
+		);
 		hooks.progress('Écriture dans la note du jour…');
-		const daily = await writeVoiceNote(app, settings, state, transcript, entry.trim());
+		const daily = await writeVoiceNote(app, settings, state, transcript, parseEntry(raw));
 		state.status = 'done';
 		state.error = undefined;
 		await saveState(app, state);
@@ -297,7 +302,7 @@ export async function writeVoiceNote(
 	settings: MeetingSettings,
 	state: MeetingState,
 	transcript: string,
-	entry: string,
+	entry: JournalEntry,
 ): Promise<TFile> {
 	const meta = {
 		date: window.moment(state.startedAt).format('YYYY-MM-DDTHH:mm'),
@@ -328,18 +333,20 @@ export async function writeVoiceNote(
 	]
 		.filter(Boolean)
 		.join(' · ');
-	const block = `### 🎙️ ${window.moment(state.startedAt).format('HH:mm')} · ${state.title}\n${links}\n\n${entry}\n`;
-	// Re-processing replaces the block for this note instead of adding a second one.
-	const marker = `<!-- mn:${state.folder} -->`;
+	const block = renderEntry(window.moment(state.startedAt).format('HH:mm'), state.title, entry, links);
+	// Re-processing replaces this note's block (found by its link to the transcript) instead of adding one.
+	const transcriptLink = app.fileManager.generateMarkdownLink(transcriptFile, file.path, undefined, 'Transcript');
 	await app.vault.process(file, (data) => {
-		const tagged = `${marker}\n${block}${marker.replace('mn:', '/mn:')}`;
-		const re = new RegExp(`${escapeRe(marker)}[\\s\\S]*?${escapeRe(marker.replace('mn:', '/mn:'))}`);
-		if (re.test(data)) return data.replace(re, tagged);
-		return `${data.replace(/\s+$/, '')}${data.trim() ? '\n\n' : ''}${tagged}\n`;
+		const lines = data.split('\n');
+		const at = lines.findIndex((l) => l.includes(transcriptLink));
+		const start = at < 0 ? -1 : lines.slice(0, at + 1).map((l) => l.startsWith('### 🎙️')).lastIndexOf(true);
+		if (start >= 0) {
+			let end = start + 1;
+			while (end < lines.length && !/^#{1,3} /.test(lines[end])) end++;
+			return [...lines.slice(0, start), block, '', ...lines.slice(end)].join('\n').replace(/\n{3,}/g, '\n\n');
+		}
+		return `${data.replace(/\s+$/, '')}${data.trim() ? '\n\n' : ''}${block}\n`;
 	});
 	return file;
 }
 
-function escapeRe(s: string) {
-	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}

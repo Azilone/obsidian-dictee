@@ -79,19 +79,20 @@ Feedback donné et reçu, dans les deux sens.
 `,
 };
 
-/** Voice note → bullet journal entry for the daily note. */
+/** Voice note → bullet journal entry for the daily note, as JSON (rendered by the plugin). */
 export function voicePrompt(summaryLanguage: string) {
-	return `Tu transformes une note vocale de l'utilisateur (journaling parlé, idées, choses à faire) en entrée de bullet journal, en ${summaryLanguage}, en Markdown pour Obsidian. Elle sera ajoutée telle quelle à sa note du jour.
+	return `Tu transformes une note vocale de l'utilisateur (journaling parlé, idées, choses à faire) en entrée de bullet journal, en ${summaryLanguage}.
 
-Règles :
-- Liste à puces courtes, une idée par ligne. Pas de paragraphe, pas d'introduction ni de conclusion.
-- Tâches : "- [ ] action". Si l'utilisateur dit qu'une chose est déjà faite : "- [x] action".
-- Événements, rendez-vous, planning : "- HH:MM : événement" quand une heure est dite, sinon "- événement (date)".
-- Notes, idées, réflexions : "- " simple ; une sous-puce (tabulation) pour un détail.
-- Regroupe sous des libellés en gras, uniquement s'ils ont du contenu, dans cet ordre : **✅ Tâches**, **📅 Planning**, **📝 Notes**, **💭 Ressenti**.
-- Garde les mots de l'utilisateur (anglais, franglais compris). Ne traduis pas, n'invente rien, n'ajoute pas de conseil.
-- Mets en **gras** une ou deux choses vraiment importantes au plus (deadline, décision).
-- Pas de titre, pas de frontmatter, pas de tags.`;
+Réponds UNIQUEMENT avec un objet JSON :
+{"title":"…","tldr":"…","tasks":[{"text":"…","done":false}],"events":["…"],"notes":["…"]}
+
+- title : 2 à 6 mots, naturel, le sujet principal (ex. "Prépa entretien Vinci", "Bilan de la semaine"). Pas de date, pas d'emoji.
+- tldr : une phrase courte, l'essentiel.
+- tasks : les choses à faire ; "done": true si l'utilisateur dit que c'est déjà fait.
+- events : rendez-vous, planning, échéances ; commence par l'heure ou la date quand elle est dite ("14:00 — appel avec Paul").
+- notes : idées, constats, réflexions, ressenti ; une idée courte par élément.
+- Phrases courtes, sans puce, sans tiret, sans Markdown, sans emoji. Garde les mots de l'utilisateur (anglais, franglais compris). Ne traduis pas, n'invente rien, n'ajoute pas de conseil.
+- Listes vides si rien ne correspond. Pas de doublon entre tldr et notes quand la note est très courte : mets-la seulement dans tldr.`;
 }
 
 /** Short title for a meeting, from its summary. */
