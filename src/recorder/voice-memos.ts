@@ -53,7 +53,7 @@ function readDatabase(dir: string): Map<string, { title: string; duration: numbe
 			if (row.path) out.set(row.path.split('/').pop()!, { title: String(row.title ?? ''), duration: Number(row.duration) || 0 });
 		}
 	} catch (e) {
-		console.warn('[meeting-notes] Voice Memos database unreadable, using file names only', e);
+		console.warn('[dictee] Voice Memos database unreadable, using file names only', e);
 	}
 	return out;
 }

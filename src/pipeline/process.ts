@@ -92,7 +92,7 @@ async function classify(api: OpenRouter, llm: string, utts: Utterance[], duratio
 		);
 		if (reply.kind === 'meeting' || reply.kind === 'journal') return reply.kind === 'meeting' ? 'meeting' : 'voice';
 	} catch (e) {
-		console.warn('[meeting-notes] kind detection failed, using the voice count', e);
+		console.warn('[dictee] kind detection failed, using the voice count', e);
 	}
 	return voices >= 2 ? 'meeting' : 'voice';
 }
@@ -147,7 +147,7 @@ export async function processMeeting(
 				], { json: true }),
 			);
 		} catch (e) {
-			console.warn('[meeting-notes] speaker grouping failed, keeping raw labels', e);
+			console.warn('[dictee] speaker grouping failed, keeping raw labels', e);
 		}
 		people = normalizePeople(raw, utts);
 		if (hooks.askNames) people = await hooks.askNames(people, utts);
@@ -225,7 +225,7 @@ export async function processMeeting(
 				.replace(/^["«\s#]+|["»\s.]+$/g, '');
 			if (title) await applyTitle(app, state, title);
 		} catch (e) {
-			console.warn('[meeting-notes] title generation failed, keeping the placeholder', e);
+			console.warn('[dictee] title generation failed, keeping the placeholder', e);
 		}
 	}
 	hooks.progress('Écriture des fichiers…');
@@ -358,7 +358,7 @@ export async function writeVoiceNote(
 	const dir = dailyPath.split('/').slice(0, -1).join('/');
 	if (dir && !app.vault.getAbstractFileByPath(dir)) await app.vault.createFolder(dir);
 	let daily = app.vault.getAbstractFileByPath(dailyPath);
-	if (!(daily instanceof TFile)) daily = await app.vault.create(dailyPath, '');
+	if (!(daily instanceof TFile)) daily = await app.vault.create(dailyPath, `# ${(dailyPath.split('/').pop() ?? '').replace(/\.md$/, '')}\n\n`);
 	const file = daily as TFile;
 
 	const folder = app.vault.getAbstractFileByPath(state.folder);

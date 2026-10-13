@@ -1,5 +1,5 @@
 {
-  "name": "obsidian-meeting-notes",
+  "name": "obsidian-dictee",
   "version": "0.1.0",
   "description": "Record meetings, take notes, get a diarized transcript and an AI summary — natively in Obsidian.",
   "main": "main.js",

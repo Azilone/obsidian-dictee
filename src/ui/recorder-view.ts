@@ -6,9 +6,9 @@
 import { ItemView, Platform, setIcon, type WorkspaceLeaf } from 'obsidian';
 import { formatClock } from '../pipeline/merge';
 import type { MeetingKind } from '../session';
-import type MeetingNotesPlugin from '../main';
+import type DicteePlugin from '../main';
 
-export const RECORDER_VIEW = 'meeting-notes-recorder';
+export const RECORDER_VIEW = 'dictee-recorder';
 
 export class RecorderView extends ItemView {
 	private template = '';
@@ -24,7 +24,7 @@ export class RecorderView extends ItemView {
 
 	constructor(
 		leaf: WorkspaceLeaf,
-		private plugin: MeetingNotesPlugin,
+		private plugin: DicteePlugin,
 	) {
 		super(leaf);
 	}

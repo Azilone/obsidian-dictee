@@ -6,7 +6,7 @@ import { join } from 'path';
 const prod = process.argv[2] === 'production';
 // Set VAULT=/path/to/vault to build straight into that vault's plugin folder.
 const vault = process.env.VAULT;
-const outdir = vault ? join(vault, '.obsidian', 'plugins', 'meeting-notes') : '.';
+const outdir = vault ? join(vault, '.obsidian', 'plugins', 'dictee') : '.';
 if (vault) mkdirSync(outdir, { recursive: true });
 
 const copyAssets = {

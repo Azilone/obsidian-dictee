@@ -113,7 +113,7 @@ export class TranscriptionQueue {
 			} catch (e) {
 				chunk.status = 'error';
 				chunk.error = (e as Error).message;
-				console.error('[meeting-notes] transcription failed', name, e);
+				console.error('[dictee] transcription failed', name, e);
 			}
 			await saveState(this.app, this.state);
 			this.onProgress?.();
@@ -369,7 +369,7 @@ export class RecordingSession {
 		if (ids.includes('system')) {
 			const sys = new SystemSource(this.helperPath, feed('system'), (msg) => {
 				this.systemError = msg;
-				new Notice(`Meeting Notes : ${msg}. L’enregistrement continue avec le micro seul.`);
+				new Notice(`Dictée : ${msg}. L’enregistrement continue avec le micro seul.`);
 				this.onChange?.();
 			});
 			try {

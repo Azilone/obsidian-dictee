@@ -1,8 +1,8 @@
 <div align="center">
 
-# Meeting Notes for Obsidian
+# Dictée for Obsidian
 
-**Record any meeting, take notes as you go, and get a clean "who said what" transcript and an AI summary — right in your vault.**
+**Record by voice, in your vault. Two uses: meetings (a clean "who said what" transcript and an AI summary) and journaling (spoken entries turned into bullets in your daily note).**
 
 No bot joins your call. No new app. Your notes stay plain Markdown.
 
@@ -16,9 +16,18 @@ No bot joins your call. No new app. Your notes stay plain Markdown.
 
 ---
 
-## What it does
+## Two uses
 
-1. **Start recording at any time** — ribbon icon, command palette or a hotkey. Pick a title, call or in-person, the language, and a summary template.
+| | **Réunion** | **Journal** |
+|---|---|---|
+| For | Calls on your Mac (mic + system audio) or in-person meetings | Journaling out loud: tasks, plans, ideas, mood |
+| Result | `Réunions/<date> <title>/` with summary, transcript, notes, audio | A bullet-journal entry appended to today's daily note; audio and transcript in `JOURNAL/Notes vocales/` |
+
+Starting is one click: the ribbon icon (or command / hotkey) asks only **Réunion** or **Journal**. Everything else comes from the settings (meeting type, language, summary template), and the meeting's title is chosen by the LLM once the summary is written.
+
+## Meetings
+
+1. **Start recording at any time** — ribbon icon, command palette or a hotkey, then pick **Réunion**.
 2. **Write your notes** in `Notes.md`, which opens for you. Every line is timestamped silently, and *Mark this moment* drops a `⏱ 12:34` marker.
 3. **Stop** — from the status bar, the note header or a command. Audio is transcribed in the background *during* the meeting, so the result is ready seconds after you stop.
 4. **Name the speakers** — the plugin suggests names it heard in the conversation ("thanks Paul…"); you confirm or fix them.
@@ -39,11 +48,11 @@ Tasks come out as `- [ ] Paul — send the recap (Friday)`, so they work with Ta
 
 A voice memo from your phone, a `.m4a` from a dictaphone, a `.mp3` someone sent you: drop it in `Réunions/À importer` (AirDrop, iCloud Drive, Finder) or right-click any audio file in the vault → **Créer une réunion depuis cet audio**, or use the *Importer un enregistrement audio* command to pick a file anywhere on disk. The audio goes through the same silence removal, diarization and summary as a live recording, and the result is the same folder (with the original audio kept next to it).
 
-### On your phone: voice notes and in-person meetings
+### On your phone: journal and in-person meetings
 
-Tap the mic icon to open the **recorder**: pick **Voice note** or **Meeting**, then one big button to record, pause and stop.
+Tap the mic icon to open the **recorder**: pick **Voice note** (journal) or **Meeting**, then one big button to record, pause and stop.
 
-- **Voice note**: journal out loud. The audio and transcript go to `Notes vocales/`, and a short bullet-journal entry (tasks, plans, notes, mood) is appended to today's daily note (path from the core Daily notes plugin, or set your own).
+- **Voice note**: journal out loud. The audio and transcript go to `JOURNAL/Notes vocales/`, and a short bullet-journal entry (tasks, plans, notes, mood) is appended to today's daily note (path from the core Daily notes plugin, or set your own).
 - **Meeting**: in-person, microphone only, same folder as on desktop.
 
 iOS cuts the microphone of any app in the background or behind a locked screen, Obsidian included. The screen stays on while recording, and the mic is resumed when you come back (the lost time is shown). To record with the screen locked, use Voice Memos, then *Save to Files* into the import folder of your vault: it is offered for processing the next time Obsidian opens. The OpenRouter key is stored per device, so enter it on the phone too.
@@ -71,31 +80,32 @@ You pay OpenRouter directly (bring your own key). As a rough guide, transcriptio
 Requirements: macOS 14.4+, Obsidian 1.11.4+, [Bun](https://bun.sh), Xcode command line tools (`swiftc`).
 
 ```bash
-git clone https://github.com/Azilone/obsidian-meeting-notes.git
-cd obsidian-meeting-notes
+git clone https://github.com/Azilone/obsidian-meeting-notes.git dictee
+cd dictee
 bun install
 ./native/build.sh
 VAULT="/path/to/your/vault" bun run build
 ```
 
-Then in Obsidian: **Settings → Community plugins → enable Meeting Notes**.
+Then in Obsidian: **Settings → Community plugins → enable Dictée**.
 
 ### Setup
 
-1. **Settings → Meeting Notes → OpenRouter API key**: paste your key. It is checked against OpenRouter, the remaining credit is shown, and it is saved in Obsidian's secret storage (never in your vault or in `data.json`).
+1. **Settings → Dictée → OpenRouter API key**: paste your key. It is checked against OpenRouter, the remaining credit is shown, and it is saved in Obsidian's secret storage (never in your vault or in `data.json`).
 2. Set **your name** (used for your microphone).
-3. On the first recording, macOS asks to allow **system audio recording** for *Meeting Notes*. Accept it, or the other participants won't be captured.
+3. On the first recording, macOS asks to allow **system audio recording** for the plugin (the helper still appears as *Meeting Notes*). Accept it, or the other participants won't be captured.
 
 ## Summary templates
 
-Templates are plain notes in `Réunions/Modèles` (configurable). The note's content describes the summary you want; two are created for you: **Général** and **1:1**. Duplicate one, rewrite the sections, and it shows up in the start dialog.
+Templates are plain notes in `Réunions/Modèles` (configurable). The note's content describes the summary you want; two are created for you: **Général** and **1:1**. Duplicate one, rewrite the sections, and it can be chosen as the default summary template in the settings.
 
 ## Settings
 
 | Setting | Default |
 |---|---|
 | Meeting type | Call (mic + system audio) / In person (mic only, every voice diarized) |
-| Language | Auto-detect; can be changed for each meeting |
+| Default summary template | `Général` |
+| Language | Auto-detect |
 | Summary language | French |
 | Keep audio | On |
 | Chunk length | 8 min |
@@ -141,7 +151,7 @@ src/
   recorder/track.ts    VAD, silence removal, chunking, time maps
   recorder/sources.ts  microphone (AudioWorklet) and system audio (helper)
   pipeline/            merge, speaker matching, clean-up, summary, writer
-  ui/modals.ts         start dialog, import dialog, speaker names
+  ui/modals.ts         Réunion/Journal choice, import dialog, speaker names
   ui/overlay.ts        always-on-top recorder pill (separate Electron window)
   recorder/decode.ts   audio file → 16 kHz PCM (helper `--decode`, Web Audio fallback)
 native/macos/          Swift Core Audio tap helper

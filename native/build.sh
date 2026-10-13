@@ -12,7 +12,7 @@ lipo -create build/meeting-tap-arm64 build/meeting-tap-x86_64 -output bin/meetin
 codesign --force --sign - --identifier io.github.azilone.meeting-notes.tap bin/meeting-tap
 ls -lh bin/meeting-tap
 if [ -n "$VAULT" ]; then
-	dest="$VAULT/.obsidian/plugins/meeting-notes"
+	dest="$VAULT/.obsidian/plugins/dictee"
 	mkdir -p "$dest"
 	cp bin/meeting-tap "$dest/meeting-tap"
 	echo "Copied to $dest"

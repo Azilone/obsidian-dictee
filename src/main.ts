@@ -25,9 +25,10 @@ import { RecorderOverlay, type OverlayAction } from './ui/overlay';
 import { RECORDER_VIEW, RecorderView } from './ui/recorder-view';
 import { NoAccessError, listNewMemos, memoKind } from './recorder/voice-memos';
 
+/** Kept from the plugin's former name so the stored OpenRouter key survives the rename. */
 const SECRET_ID = 'meeting-notes-openrouter';
 
-export default class MeetingNotesPlugin extends Plugin {
+export default class DicteePlugin extends Plugin {
 	settings!: MeetingSettings;
 	api!: OpenRouter;
 	session: RecordingSession | null = null;
@@ -52,7 +53,7 @@ export default class MeetingNotesPlugin extends Plugin {
 
 		this.addSettingTab(new MeetingSettingTab(this.app, this));
 		this.registerView(RECORDER_VIEW, (leaf) => new RecorderView(leaf, this));
-		this.ribbonEl = this.addRibbonIcon('mic', Platform.isMobile ? 'Enregistreur' : 'Démarrer une réunion', () => {
+		this.ribbonEl = this.addRibbonIcon('mic', Platform.isMobile ? 'Enregistreur' : 'Enregistrer (réunion ou journal)', () => {
 			// On the phone the recorder screen (big button) is the way in.
 			if (Platform.isMobile) void this.openRecorder();
 			else if (this.session) this.showRecorderMenu(this.ribbonEl);
@@ -66,7 +67,7 @@ export default class MeetingNotesPlugin extends Plugin {
 
 		this.addCommand({
 			id: 'start',
-			name: 'Démarrer une réunion',
+			name: 'Enregistrer (réunion ou journal)',
 			icon: 'mic',
 			checkCallback: (checking) => {
 				if (this.session) return false;
@@ -478,7 +479,7 @@ export default class MeetingNotesPlugin extends Plugin {
 		try {
 			await session.stop();
 		} catch (e) {
-			console.error('[meeting-notes] stop failed', e);
+			console.error('[dictee] stop failed', e);
 		}
 		await this.runPipeline(session.state, session.queue);
 	}
@@ -661,7 +662,7 @@ export default class MeetingNotesPlugin extends Plugin {
 			state.status = 'error';
 			state.error = (e as Error).message;
 			await saveState(this.app, state).catch(() => {});
-			console.error('[meeting-notes] processing failed', e);
+			console.error('[dictee] processing failed', e);
 			progress.fail((e as Error).message);
 		} finally {
 			this.processing.delete(folder);
@@ -836,7 +837,7 @@ export default class MeetingNotesPlugin extends Plugin {
 			state.status = 'error';
 			state.error = (e as Error).message;
 			await saveState(this.app, state).catch(() => {});
-			console.error('[meeting-notes] import failed', e);
+			console.error('[dictee] import failed', e);
 			notice.fail((e as Error).message);
 		}
 	}
@@ -954,7 +955,7 @@ export default class MeetingNotesPlugin extends Plugin {
 		}
 		el.toggle(!!s || this.processing.size > 0);
 		setIcon(this.ribbonEl, s ? 'square' : 'mic');
-		this.ribbonEl.setAttribute('aria-label', s ? 'Enregistrement en cours' : Platform.isMobile ? 'Enregistreur' : 'Démarrer une réunion');
+		this.ribbonEl.setAttribute('aria-label', s ? 'Enregistrement en cours' : Platform.isMobile ? 'Enregistreur' : 'Enregistrer (réunion ou journal)');
 		this.ribbonEl.toggleClass('mn-ribbon-recording', !!s);
 		this.syncPlayers();
 		for (const leaf of this.app.workspace.getLeavesOfType(RECORDER_VIEW)) {

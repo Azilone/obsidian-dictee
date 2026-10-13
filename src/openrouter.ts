@@ -69,7 +69,7 @@ export class OpenRouter {
 
 	private async post(path: string, body: unknown): Promise<any> {
 		const key = this.getKey();
-		if (!key) throw new OpenRouterError('Clé OpenRouter manquante (Réglages → Meeting Notes).', 401);
+		if (!key) throw new OpenRouterError('Clé OpenRouter manquante (Réglages → Dictée).', 401);
 		let res;
 		try {
 			res = await requestUrl({
@@ -79,7 +79,7 @@ export class OpenRouter {
 				headers: {
 					Authorization: `Bearer ${key}`,
 					'HTTP-Referer': 'https://obsidian.md',
-					'X-Title': 'Obsidian Meeting Notes',
+					'X-Title': 'Obsidian Dictée',
 				},
 				body: JSON.stringify(body),
 				throw: false,

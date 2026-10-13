@@ -131,7 +131,7 @@ export class RecorderOverlay {
 			alwaysOnTop: true,
 			focusable: false,
 			show: false,
-			title: 'Meeting Notes',
+			title: 'Dictée',
 			webPreferences: { nodeIntegration: false, contextIsolation: true, backgroundThrottling: false },
 		});
 		this.win = win;

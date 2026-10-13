@@ -66,7 +66,7 @@ export async function decodeFile(
 	} catch (e) {
 		// Once audio has been pushed downstream, replaying from the start would duplicate it.
 		if (received) throw e;
-		console.warn('[meeting-notes] helper decode failed, falling back to Web Audio', e);
+		console.warn('[dictee] helper decode failed, falling back to Web Audio', e);
 		await decodeWithWebAudio(await readBytes(), hooks);
 	}
 }

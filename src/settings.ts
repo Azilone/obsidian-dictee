@@ -1,5 +1,5 @@
 import { App, Platform, PluginSettingTab, Setting } from 'obsidian';
-import type MeetingNotesPlugin from './main';
+import type DicteePlugin from './main';
 import { checkKey } from './openrouter';
 import { listMicrophones } from './recorder/sources';
 import { VOICE_MEMOS_DIR } from './recorder/voice-memos';
@@ -88,8 +88,8 @@ export const DEFAULT_SETTINGS: MeetingSettings = {
 	maxMinutes: 180,
 	sttPricePerMinute: 0.0017,
 	importFolder: 'Réunions/À importer',
-	voiceFolder: 'Notes vocales',
-	dailyNoteFormat: '',
+	voiceFolder: 'JOURNAL/Notes vocales',
+	dailyNoteFormat: '[JOURNAL]/YYYY/[Journalier]/YYYY.MM.DD',
 	lastKind: 'voice',
 	voiceMemos: false,
 	voiceMemosDir: VOICE_MEMOS_DIR,
@@ -101,7 +101,7 @@ export const DEFAULT_SETTINGS: MeetingSettings = {
 export class MeetingSettingTab extends PluginSettingTab {
 	constructor(
 		app: App,
-		private plugin: MeetingNotesPlugin,
+		private plugin: DicteePlugin,
 	) {
 		super(app, plugin);
 	}
@@ -374,7 +374,7 @@ export class MeetingSettingTab extends PluginSettingTab {
 			.setDesc('Audio et transcript de chaque note vocale. Le résumé va dans la note du jour.')
 			.addText((t) =>
 				t.setValue(s.voiceFolder).onChange(async (v) => {
-					s.voiceFolder = v.trim().replace(/\/+$/, '') || 'Notes vocales';
+					s.voiceFolder = v.trim().replace(/\/+$/, '') || DEFAULT_SETTINGS.voiceFolder;
 					await save();
 				}),
 			);
