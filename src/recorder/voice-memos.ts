@@ -97,8 +97,7 @@ export function listNewMemos(dir: string, since: Date, seen: Set<string>): Voice
 	return out.sort((a, b) => a.recordedAt.getTime() - b.recordedAt.getTime());
 }
 
-/** Meeting if the title says so or it is long; otherwise a journal entry. */
-export function memoKind(memo: VoiceMemo, meetingMinutes: number): 'meeting' | 'voice' {
-	if (/r[ée]union|meeting|call|rdv|entretien|1:1/i.test(memo.title)) return 'meeting';
-	return meetingMinutes > 0 && memo.duration >= meetingMinutes * 60 ? 'meeting' : 'voice';
+/** A memo titled like a meeting is one; otherwise the transcript decides (`auto`). */
+export function memoKind(memo: VoiceMemo): 'meeting' | 'auto' {
+	return /r[ée]union|meeting|call|rdv|entretien|1:1/i.test(memo.title) ? 'meeting' : 'auto';
 }

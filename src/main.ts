@@ -248,11 +248,11 @@ export default class MeetingNotesPlugin extends Plugin {
 			// Marked first: a memo that fails is kept in its folder for « Retraiter », never re-imported in a loop.
 			st.voiceMemosSeen.push(memo.name);
 			await this.saveSettings();
-			const kind = memoKind(memo, st.meetingMinMinutes);
+			const kind = memoKind(memo);
 			const templates = await this.templateNames();
 			await this.importAudio(memo.path, {
 				kind,
-				title: kind === 'meeting' ? memo.title || 'Réunion' : 'Journal',
+				title: kind === 'meeting' ? memo.title : 'Mémo',
 				startedAt: memo.recordedAt.toISOString(),
 				language: st.language,
 				template: st.lastTemplate || templates[0],
@@ -339,9 +339,9 @@ export default class MeetingNotesPlugin extends Plugin {
 	}
 
 	/** `Réunions/YYYY-MM-DD HHmm Title`, suffixed when it already exists; created on disk. */
-	private async newMeetingFolder(title: string, when: Moment, kind: MeetingKind = 'meeting'): Promise<string> {
+	private async newMeetingFolder(title: string, when: Moment, kind: MeetingKind | 'auto' = 'meeting'): Promise<string> {
 		const safeTitle = title.replace(/[\\/:*?"<>|#^[\]]/g, ' ').replace(/\s+/g, ' ').trim();
-		const root = kind === 'voice' ? this.settings.voiceFolder : this.settings.rootFolder;
+		const root = kind === 'meeting' ? this.settings.rootFolder : this.settings.voiceFolder;
 		let folder = normalizePath(`${root}/${when.format('YYYY-MM-DD HHmm')} ${safeTitle}`);
 		for (let i = 2; this.app.vault.getAbstractFileByPath(folder); i++) folder = folder.replace(/( \(\d+\))?$/, ` (${i})`);
 		await this.ensureFolder(folder);
@@ -641,21 +641,21 @@ export default class MeetingNotesPlugin extends Plugin {
 	private async runPipeline(state: MeetingState, queue: TranscriptionQueue, background = false, notice?: ProgressNotice) {
 		const { folder } = state;
 		const progress = notice ?? new ProgressNotice(this.recordingLabel(state));
-		const update = (step: string) => {
-			this.processing.set(folder, step);
-			this.render();
-		};
 		queue.onProgress = () => this.render();
 		try {
 			const res = await processMeeting(this.app, this.api, this.settings, state, queue, {
-				progress: update,
+				progress: (step) => {
+					this.processing.set(state.folder, step);
+					this.render();
+				},
+				relocate: (kind) => this.settleKind(state, kind),
 				askNames: this.settings.askSpeakerNames && !background
 					? (people: Person[], utts: Utterance[]) =>
 							new Promise((resolve) => new SpeakerNamesModal(this.app, people, utts, resolve).open())
 					: undefined,
 			});
 			const open = () => void this.app.workspace.getLeaf(false).openFile(res.summary);
-			progress.done(res.cost, open);
+			progress.done(res.cost, open, this.recordingLabel(state));
 			if (!background) open();
 		} catch (e) {
 			state.status = 'error';
@@ -665,12 +665,37 @@ export default class MeetingNotesPlugin extends Plugin {
 			progress.fail((e as Error).message);
 		} finally {
 			this.processing.delete(folder);
+			this.processing.delete(state.folder);
 			this.render();
 		}
 	}
 
 	private recordingLabel(state: MeetingState): string {
-		return state.kind === 'voice' ? 'Journal' : state.title;
+		return state.kind === 'voice' ? 'Journal' : state.kind === 'auto' ? 'Mémo' : state.title;
+	}
+
+	/**
+	 * An `auto` recording once the transcript says what it is: a journal stays with the voice
+	 * notes (renamed « Journal »), a meeting moves to the meetings folder and gets a title later.
+	 */
+	private async settleKind(state: MeetingState, kind: MeetingKind) {
+		const from = this.app.vault.getAbstractFileByPath(state.folder);
+		if (!(from instanceof TFolder)) return;
+		const stamp = from.name.match(/^\d{4}-\d{2}-\d{2} \d{4}/)?.[0] ?? window.moment(state.startedAt).format('YYYY-MM-DD HHmm');
+		const title = kind === 'voice' ? 'Journal' : 'Réunion';
+		const root = normalizePath(kind === 'voice' ? this.settings.voiceFolder : this.settings.rootFolder);
+		await this.ensureFolder(root);
+		let to = normalizePath(`${root}/${stamp} ${title}`);
+		for (let i = 2; this.app.vault.getAbstractFileByPath(to); i++) to = normalizePath(`${root}/${stamp} ${title} (${i})`);
+		await this.app.fileManager.renameFile(from, to);
+		this.processing.delete(state.folder);
+		Object.assign(state, { folder: to, title, kind });
+		if (kind === 'meeting') {
+			state.autoTitle = true;
+			state.template ||= this.settings.lastTemplate || (await this.templateNames())[0];
+			await this.app.vault.create(normalizePath(`${to}/Notes.md`), `# ${title}\n\n`);
+		}
+		await saveState(this.app, state);
 	}
 
 	// ─── Import ───
@@ -756,7 +781,7 @@ export default class MeetingNotesPlugin extends Plugin {
 			await this.app.vault.create(normalizePath(`${folder}/Notes.md`), `# ${opts.title}\n\n`);
 			if (!background) this.settings.lastTemplate = opts.template;
 		}
-		if (!background) {
+		if (!background && kind !== 'auto') {
 			this.settings.lastKind = kind;
 			await this.saveSettings();
 		}
@@ -1017,9 +1042,9 @@ class ProgressNotice {
 		this.notice.setMessage(`🎙️ ${label} — transcription en cours…`);
 	}
 
-	done(cost: number, open: () => void) {
+	done(cost: number, open: () => void, label = this.label) {
 		this.notice.hide();
-		const n = new Notice(`✓ ${this.label} — transcription terminée${cost > 0 ? ` · ${formatCost(cost)}` : ''}`, 8000);
+		const n = new Notice(`✓ ${label} — transcription terminée${cost > 0 ? ` · ${formatCost(cost)}` : ''}`, 8000);
 		n.messageEl.addClass('mn-notice', 'mod-clickable');
 		n.messageEl.addEventListener('click', open);
 	}

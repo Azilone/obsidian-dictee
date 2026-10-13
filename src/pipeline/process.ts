@@ -2,16 +2,18 @@
 
 import { App, TFile, TFolder, normalizePath, stringifyYaml } from 'obsidian';
 import { parseJson, type OpenRouter } from '../openrouter';
-import { micIsMe, readChunkResult, saveState, type MeetingState, type TranscriptionQueue } from '../session';
+import { micIsMe, readChunkResult, saveState, type MeetingKind, type MeetingState, type TranscriptionQueue } from '../session';
 import type { MeetingSettings } from '../settings';
 import { LANGUAGES } from '../settings';
 import { formatClock, mergeChunks, toRawLines, type Utterance } from './merge';
 import { parseEntry, renderEntry, type JournalEntry } from './journal';
-import { SPEAKERS_PROMPT, cleanPrompt, summaryPrompt, titlePrompt, voicePrompt } from './prompts';
+import { KIND_PROMPT, SPEAKERS_PROMPT, cleanPrompt, summaryPrompt, titlePrompt, voicePrompt } from './prompts';
 import { nameMap, normalizePeople, type Person } from './speakers';
 
 export interface ProcessHooks {
 	progress(step: string): void;
+	/** `auto` recordings: move to the right place once the kind is known (sets `state.kind`/`folder`). */
+	relocate?(kind: MeetingKind): Promise<void>;
 	/** Let the user confirm or fix speaker names; resolves with the final people list. */
 	askNames?(people: Person[], utts: Utterance[]): Promise<Person[]>;
 }
@@ -68,6 +70,33 @@ function stripFrontmatter(md: string): string {
 	return md.replace(/^---\n[\s\S]*?\n---\n?/, '');
 }
 
+/** Meeting or journal: the model reads the start of the transcript; voice count is the fallback. */
+async function classify(api: OpenRouter, llm: string, utts: Utterance[], duration: number): Promise<MeetingKind> {
+	const talk = new Map<string, number>();
+	for (const u of utts) talk.set(u.label, (talk.get(u.label) ?? 0) + Math.max(0, u.end - u.start));
+	const total = [...talk.values()].reduce((a, b) => a + b, 0) || 1;
+	const voices = [...talk.values()].filter((t) => t / total >= 0.1).length;
+	try {
+		const reply = parseJson<{ kind?: string }>(
+			await api.chat(
+				llm,
+				[
+					{ role: 'system', content: KIND_PROMPT },
+					{
+						role: 'user',
+						content: `Durée : ${Math.round(duration / 60)} min\nVoix détectées (≥ 10 % du temps de parole) : ${voices}\n\n${toRawLines(utts).join('\n').slice(0, 8000)}`,
+					},
+				],
+				{ json: true },
+			),
+		);
+		if (reply.kind === 'meeting' || reply.kind === 'journal') return reply.kind === 'meeting' ? 'meeting' : 'voice';
+	} catch (e) {
+		console.warn('[meeting-notes] kind detection failed, using the voice count', e);
+	}
+	return voices >= 2 ? 'meeting' : 'voice';
+}
+
 export async function processMeeting(
 	app: App,
 	api: OpenRouter,
@@ -76,7 +105,7 @@ export async function processMeeting(
 	queue: TranscriptionQueue,
 	hooks: ProcessHooks,
 ): Promise<ProcessResult> {
-	const { folder } = state;
+	let { folder } = state;
 	const llm = settings.llmModel;
 	const spentBefore = api.spent;
 
@@ -95,6 +124,15 @@ export async function processMeeting(
 	let cost = state.chunks.reduce((n, c) => n + (c.cost ?? 0), 0);
 	const utts = mergeChunks(results, micIsMe(state));
 	if (!utts.length) throw new Error('Aucune parole détectée dans l’enregistrement.');
+
+	// 1b. Voice Memos inbox: meeting or journal, decided from what was said.
+	if (state.kind === 'auto') {
+		hooks.progress('Analyse de l’enregistrement…');
+		const kind = await classify(api, llm, utts, state.duration);
+		await (hooks.relocate ?? (async () => {}))(kind);
+		folder = state.folder;
+		if (kind === 'voice') for (const u of utts) u.label = 'me';
+	}
 
 	// 2. Who is who.
 	let people: Person[] = [];

@@ -95,6 +95,13 @@ Réponds UNIQUEMENT avec un objet JSON :
 - Listes vides si rien ne correspond. Pas de doublon entre tldr et notes quand la note est très courte : mets-la seulement dans tldr.`;
 }
 
+/** Is a recording a meeting (several people) or a personal voice journal? */
+export const KIND_PROMPT = `Tu classes un enregistrement audio de l'utilisateur.
+- "meeting" : une conversation avec au moins une autre personne (réunion, appel, entretien, discussion, cours, rendez-vous), même si l'utilisateur parle beaucoup.
+- "journal" : l'utilisateur parle seul (journaling, réflexion à voix haute, idées, liste de choses à faire, mémo pour lui-même), même s'il cite d'autres personnes.
+Tu reçois le nombre de voix détectées automatiquement (indicatif, parfois faux : une seule personne peut être comptée deux fois) et le début de la transcription.
+Réponds UNIQUEMENT avec un objet JSON : {"kind":"meeting"|"journal","reason":"courte justification"}`;
+
 /** Short title for a meeting, from its summary. */
 export function titlePrompt(summaryLanguage: string) {
 	return `Tu donnes un titre à une réunion à partir de son compte rendu. En ${summaryLanguage}, 2 à 6 mots, concret (sujet ou projet, pas « Réunion »), sans guillemets, sans date, sans ponctuation finale. Réponds uniquement avec le titre.`;

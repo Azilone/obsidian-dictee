@@ -235,7 +235,7 @@ export class MeetingSettingTab extends PluginSettingTab {
 			new Setting(containerEl)
 				.setName('Traiter les nouveaux mémos automatiquement')
 				.setDesc(
-					'Enregistre avec Dictaphone sur l’iPhone (écran verrouillé, pause…) : chaque nouveau mémo synchronisé par iCloud est transcrit et rangé, toutes les 2 minutes tant qu’Obsidian est ouvert. Seuls les mémos à partir du jour de l’activation sont pris, pas l’historique. Obsidian a besoin de l’accès complet au disque.',
+					'Enregistre avec Dictaphone sur l’iPhone (écran verrouillé, pause…) : chaque nouveau mémo synchronisé par iCloud est transcrit, reconnu comme réunion ou journal d’après ce qui est dit, et rangé, toutes les 2 minutes tant qu’Obsidian est ouvert. Seuls les mémos à partir du jour de l’activation sont pris, pas l’historique. Obsidian a besoin de l’accès complet au disque.',
 				)
 				.addToggle((t) =>
 					t.setValue(s.voiceMemos).onChange(async (v) => {
@@ -246,18 +246,6 @@ export class MeetingSettingTab extends PluginSettingTab {
 						if (v) void this.plugin.checkVoiceMemos(true);
 					}),
 				);
-			new Setting(containerEl)
-				.setName('Réunion à partir de (min)')
-				.setDesc('Un mémo plus long, ou dont le titre contient « réunion », devient une réunion. Les autres vont dans la note du jour. 0 = seulement par le titre.')
-				.addText((t) => {
-					t.inputEl.type = 'number';
-					t.inputEl.min = '0';
-					t.setValue(String(s.meetingMinMinutes)).onChange(async (v) => {
-						const n = Number(v);
-						s.meetingMinMinutes = Number.isFinite(n) && n >= 0 ? n : DEFAULT_SETTINGS.meetingMinMinutes;
-						await save();
-					});
-				});
 		}
 
 		new Setting(containerEl).setName('Overlay').setHeading();

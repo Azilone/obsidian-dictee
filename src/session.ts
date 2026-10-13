@@ -39,7 +39,8 @@ export interface MeetingState {
 	/** Vault-relative path of the imported audio, for reference. */
 	sourceFile?: string;
 	/** `voice`: a solo voice note, summarised as a bullet journal into the daily note. */
-	kind?: MeetingKind;
+	/** `auto`: decided from the transcript (Voice Memos inbox), then set to `meeting` or `voice`. */
+	kind?: MeetingKind | 'auto';
 	/** The title is a placeholder: the LLM names the meeting (and its folder) once the summary is written. */
 	autoTitle?: boolean;
 }

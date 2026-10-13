@@ -104,7 +104,8 @@ export class SpeakerNamesModal extends Modal {
 }
 
 export interface ImportOptions {
-	kind: MeetingKind;
+	/** `auto`: decided from the transcript (Voice Memos inbox only). */
+	kind: MeetingKind | 'auto';
 	title: string;
 	/** ISO date-time of the meeting start. */
 	startedAt: string;
