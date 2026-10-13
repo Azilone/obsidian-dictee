@@ -386,7 +386,7 @@ export default class MeetingNotesPlugin extends Plugin {
 			return;
 		}
 		this.session = session;
-		if (notes && openNotes) {
+		if (notes && openNotes && !Platform.isMobile) {
 			const leaf = this.app.workspace.getLeaf(false);
 			await leaf.openFile(notes, { active: true });
 			const view = leaf.view;
@@ -886,7 +886,7 @@ export default class MeetingNotesPlugin extends Plugin {
 		const s = this.session;
 		for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
 			const view = leaf.view as MarkdownView;
-			const want = !!s && view.file?.path === s.notesPath;
+			const want = !!s && !Platform.isMobile && view.file?.path === s.notesPath;
 			let player = this.players.get(view);
 			if (want && !player) {
 				player = new Player(view.contentEl, {

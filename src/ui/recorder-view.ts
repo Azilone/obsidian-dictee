@@ -11,7 +11,6 @@ import type MeetingNotesPlugin from '../main';
 export const RECORDER_VIEW = 'meeting-notes-recorder';
 
 export class RecorderView extends ItemView {
-	private title = '';
 	private template = '';
 	private templates: string[] = [];
 	private built: 'idle' | 'live' | null = null;
@@ -89,7 +88,7 @@ export class RecorderView extends ItemView {
 
 		const seg = root.createDiv({ cls: 'mn-rec-seg' });
 		const choices: [MeetingKind, string, string][] = [
-			['voice', 'mic', 'Note vocale'],
+			['voice', 'mic', 'Journal'],
 			['meeting', 'users', 'Réunion'],
 		];
 		for (const [kind, icon, label] of choices) {
@@ -105,24 +104,20 @@ export class RecorderView extends ItemView {
 			});
 		}
 
-		if (this.kind === 'meeting') {
-			const form = root.createDiv({ cls: 'mn-rec-form' });
-			const input = form.createEl('input', { type: 'text', placeholder: 'Titre de la réunion', value: this.title });
-			input.addEventListener('input', () => (this.title = input.value));
-			const select = form.createEl('select', { cls: 'dropdown' });
-			for (const t of this.templates) select.createEl('option', { text: t, value: t });
-			select.value = this.templates.includes(this.template) ? this.template : this.templates[0];
-			select.addEventListener('change', () => (this.template = select.value));
-		} else {
-			root.createDiv({ cls: 'mn-rec-hint', text: 'Parle librement : le résumé en bullet journal ira dans ta note du jour.' });
-		}
+		root.createDiv({
+			cls: 'mn-rec-hint',
+			text:
+				this.kind === 'voice'
+					? 'Parle librement : le résumé en bullet journal ira dans ta note du jour.'
+					: 'Pose le téléphone : transcript et compte rendu à la fin.',
+		});
 
 		const big = root.createEl('button', { cls: 'mn-rec-big', attr: { 'aria-label': 'Enregistrer' } });
 		big.createSpan({ cls: 'mn-rec-big-dot' });
 		big.addEventListener('click', () => {
 			big.disabled = true;
 			void this.plugin
-				.startFromRecorder(this.kind, { title: this.title.trim(), template: this.template })
+				.startFromRecorder(this.kind, { title: '', template: this.template })
 				.finally(() => (big.disabled = false));
 		});
 		root.createDiv({ cls: 'mn-rec-label', text: 'Enregistrer' });
@@ -131,7 +126,7 @@ export class RecorderView extends ItemView {
 		if (Platform.isMobile) {
 			root.createDiv({
 				cls: 'mn-rec-note',
-				text: `L’écran reste allumé pendant l’enregistrement : garde Obsidian ouvert. Écran verrouillé, utilise Dictaphone puis « Enregistrer dans Fichiers » → dossier « ${this.plugin.settings.importFolder} » du coffre : il sera traité à la prochaine ouverture.`,
+				text: 'Garde Obsidian ouvert pendant l’enregistrement : iOS coupe le micro si tu changes d’app ou verrouilles l’écran.',
 			});
 		}
 	}
@@ -139,7 +134,7 @@ export class RecorderView extends ItemView {
 	private buildLive() {
 		const s = this.plugin.session!;
 		const root = this.contentEl.createDiv({ cls: 'mn-rec-body is-live' });
-		root.createDiv({ cls: 'mn-rec-kind', text: s.state.kind === 'voice' ? 'Note vocale' : s.state.title });
+		root.createDiv({ cls: 'mn-rec-kind', text: s.state.kind === 'voice' ? 'Journal' : 'Réunion' });
 		this.els.time = root.createDiv({ cls: 'mn-rec-time' });
 		const meter = root.createDiv({ cls: 'mn-rec-meter' });
 		this.els.meter = meter.createDiv({ cls: 'mn-rec-meter-fill' });
@@ -155,10 +150,6 @@ export class RecorderView extends ItemView {
 		setIcon(stop, 'square');
 		stop.addEventListener('click', () => void this.plugin.stopMeeting());
 
-		if (s.state.kind !== 'voice') {
-			const notes = root.createEl('button', { cls: 'mn-rec-link', text: 'Ouvrir les notes' });
-			notes.addEventListener('click', () => void s.openNotes());
-		}
 		this.els.lost = root.createDiv({ cls: 'mn-rec-lost' });
 		this.els.status = root.createDiv({ cls: 'mn-rec-status' });
 	}
