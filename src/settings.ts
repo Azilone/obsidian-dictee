@@ -31,6 +31,8 @@ export interface MeetingSettings {
 	askSpeakerNames: boolean;
 	chunkMinutes: number;
 	lastTemplate: string;
+	/** Summary template used when a meeting starts. */
+	defaultTemplate: string;
 	/** Floating always-on-top recorder pill. */
 	overlay: boolean;
 	/** Exclude the overlay from screen sharing / screenshots (macOS content protection). */
@@ -77,6 +79,7 @@ export const DEFAULT_SETTINGS: MeetingSettings = {
 	askSpeakerNames: true,
 	chunkMinutes: 8,
 	lastTemplate: '',
+	defaultTemplate: 'Général',
 	overlay: true,
 	overlayHidden: true,
 	overlayPos: null,
@@ -190,6 +193,20 @@ export class MeetingSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
+			.setName('Modèle de résumé par défaut')
+			.setDesc('Utilisé à chaque nouvelle réunion. Les modèles sont les notes du dossier des modèles.')
+			.addDropdown((d) => {
+				void this.plugin.templateNames().then((names) => {
+					for (const n of names) d.addOption(n, n);
+					d.setValue(names.includes(s.defaultTemplate) ? s.defaultTemplate : names[0]);
+				});
+				d.onChange(async (v) => {
+					s.defaultTemplate = v;
+					await save();
+				});
+			});
+
+		new Setting(containerEl)
 			.setName('Garder l’audio')
 			.setDesc('Enregistre audio.mp3 dans le dossier de la réunion.')
 			.addToggle((t) =>
@@ -218,12 +235,13 @@ export class MeetingSettingTab extends PluginSettingTab {
 			new Setting(containerEl)
 				.setName('Traiter les nouveaux mémos automatiquement')
 				.setDesc(
-					'Enregistre avec Dictaphone sur l’iPhone (écran verrouillé, pause…) : chaque nouveau mémo synchronisé par iCloud est transcrit et rangé, toutes les 2 minutes tant qu’Obsidian est ouvert. Seuls les mémos enregistrés après l’activation sont pris. Obsidian a besoin de l’accès complet au disque.',
+					'Enregistre avec Dictaphone sur l’iPhone (écran verrouillé, pause…) : chaque nouveau mémo synchronisé par iCloud est transcrit et rangé, toutes les 2 minutes tant qu’Obsidian est ouvert. Seuls les mémos à partir du jour de l’activation sont pris, pas l’historique. Obsidian a besoin de l’accès complet au disque.',
 				)
 				.addToggle((t) =>
 					t.setValue(s.voiceMemos).onChange(async (v) => {
 						s.voiceMemos = v;
-						if (v && !s.voiceMemosSince) s.voiceMemosSince = new Date().toISOString();
+						// Today's memos count too: you often record first, then turn this on.
+						if (v && !s.voiceMemosSince) s.voiceMemosSince = window.moment().startOf('day').toISOString();
 						await save();
 						if (v) void this.plugin.checkVoiceMemos(true);
 					}),
@@ -308,7 +326,7 @@ export class MeetingSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('Langue par défaut')
-			.setDesc('Modifiable au démarrage de chaque réunion.')
+			.setDesc('Détection automatique par défaut.')
 			.addDropdown((d) =>
 				d
 					.addOptions(LANGUAGES)

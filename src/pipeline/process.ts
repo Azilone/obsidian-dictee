@@ -6,7 +6,7 @@ import { micIsMe, readChunkResult, saveState, type MeetingState, type Transcript
 import type { MeetingSettings } from '../settings';
 import { LANGUAGES } from '../settings';
 import { formatClock, mergeChunks, toRawLines, type Utterance } from './merge';
-import { SPEAKERS_PROMPT, cleanPrompt, summaryPrompt, voicePrompt } from './prompts';
+import { SPEAKERS_PROMPT, cleanPrompt, summaryPrompt, titlePrompt, voicePrompt } from './prompts';
 import { nameMap, normalizePeople, type Person } from './speakers';
 
 export interface ProcessHooks {
@@ -168,12 +168,49 @@ export async function processMeeting(
 	]);
 
 	// 5. Files.
+	if (state.autoTitle) {
+		hooks.progress('Choix du titre…');
+		try {
+			const title = (
+				await api.chat(llm, [
+					{ role: 'system', content: titlePrompt(settings.summaryLanguage) },
+					{ role: 'user', content: summary.slice(0, 4000) },
+				], { maxTokens: 40 })
+			)
+				.split('\n')[0]
+				.replace(/^["«\s#]+|["»\s.]+$/g, '');
+			if (title) await applyTitle(app, state, title);
+		} catch (e) {
+			console.warn('[meeting-notes] title generation failed, keeping the placeholder', e);
+		}
+	}
 	hooks.progress('Écriture des fichiers…');
 	const files = await writeMeetingFiles(app, state, { transcript, summary: summary.trim(), participants });
 	state.status = 'done';
 	state.error = undefined;
 	await saveState(app, state);
 	return { summary: files.summary, cost };
+}
+
+/** Rename the meeting (folder, `Notes.md` heading, state) after the LLM-chosen title. */
+async function applyTitle(app: App, state: MeetingState, title: string) {
+	const safe = title.replace(/[\\/:*?"<>|#^[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+	const dir = state.folder.split('/').slice(0, -1).join('/');
+	const stamp = state.folder.split('/').pop()?.match(/^\d{4}-\d{2}-\d{2} \d{4}/)?.[0] ?? '';
+	const folder = app.vault.getAbstractFileByPath(state.folder);
+	if (!safe || !folder) return;
+	const name = [stamp, safe].filter(Boolean).join(' ');
+	let next = normalizePath([dir, name].filter(Boolean).join('/'));
+	for (let i = 2; app.vault.getAbstractFileByPath(next); i++) next = normalizePath([dir, `${name} (${i})`].filter(Boolean).join('/'));
+	await app.fileManager.renameFile(folder, next);
+	const notes = app.vault.getAbstractFileByPath(`${next}/Notes.md`);
+	if (notes instanceof TFile) {
+		await app.vault.process(notes, (data) => (data.startsWith(`# ${state.title}\n`) ? `# ${safe}${data.slice(state.title.length + 2)}` : data));
+	}
+	state.folder = next;
+	state.title = safe;
+	state.autoTitle = false;
+	await saveState(app, state);
 }
 
 export async function loadTemplate(app: App, settings: MeetingSettings, name: string): Promise<string> {

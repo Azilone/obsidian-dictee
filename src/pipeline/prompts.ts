@@ -93,3 +93,8 @@ Règles :
 - Mets en **gras** une ou deux choses vraiment importantes au plus (deadline, décision).
 - Pas de titre, pas de frontmatter, pas de tags.`;
 }
+
+/** Short title for a meeting, from its summary. */
+export function titlePrompt(summaryLanguage: string) {
+	return `Tu donnes un titre à une réunion à partir de son compte rendu. En ${summaryLanguage}, 2 à 6 mots, concret (sujet ou projet, pas « Réunion »), sans guillemets, sans date, sans ponctuation finale. Réponds uniquement avec le titre.`;
+}

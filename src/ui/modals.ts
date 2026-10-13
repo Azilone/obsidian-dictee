@@ -10,73 +10,35 @@ export interface StartOptions {
 	language: string;
 	mode: MeetingMode;
 	template: string;
+	autoTitle?: boolean;
 }
 
-export class StartMeetingModal extends Modal {
-	private opts: StartOptions;
-	private done = false;
-
+/** The only question before recording: a meeting, or a journal entry for the daily note. */
+export class StartChoiceModal extends Modal {
 	constructor(
 		app: App,
-		defaults: StartOptions,
-		private templates: string[],
-		private onSubmit: (o: StartOptions) => void,
+		private onPick: (kind: MeetingKind) => void,
 	) {
 		super(app);
-		this.opts = { ...defaults };
 	}
 
 	onOpen() {
-		const { contentEl } = this;
-		this.setTitle('Nouvelle réunion');
+		this.setTitle('Enregistrer');
 		this.modalEl.addClass('mn-start-modal');
-
-		new Setting(contentEl).setName('Titre').addText((t) => {
-			t.setPlaceholder('Réunion').setValue(this.opts.title).onChange((v) => (this.opts.title = v));
-			t.inputEl.addEventListener('keydown', (e) => {
-				if (e.key === 'Enter' && !e.isComposing) {
-					e.preventDefault();
-					this.submit();
-				}
-			});
-			window.setTimeout(() => t.inputEl.select(), 0);
-		});
-
-		new Setting(contentEl).setName('Type').addDropdown((d) =>
-			d
-				.addOptions({ call: 'Visio / appel', room: 'Présentiel' })
-				.setValue(this.opts.mode)
-				.onChange((v) => (this.opts.mode = v as MeetingMode)),
-		);
-
-		new Setting(contentEl).setName('Langue').addDropdown((d) =>
-			d
-				.addOptions(LANGUAGES)
-				.setValue(this.opts.language)
-				.onChange((v) => (this.opts.language = v)),
-		);
-
-		new Setting(contentEl).setName('Modèle de résumé').addDropdown((d) => {
-			for (const t of this.templates) d.addOption(t, t);
-			d.setValue(this.templates.includes(this.opts.template) ? this.opts.template : this.templates[0]);
-			this.opts.template = d.getValue();
-			d.onChange((v) => (this.opts.template = v));
-		});
-
-		new Setting(contentEl).addButton((b) =>
-			b
-				.setButtonText('Démarrer l’enregistrement')
-				.setCta()
-				.onClick(() => this.submit()),
-		);
-	}
-
-	private submit() {
-		if (this.done) return;
-		this.done = true;
-		this.opts.title = this.opts.title.trim() || 'Réunion';
-		this.close();
-		this.onSubmit(this.opts);
+		const row = this.contentEl.createDiv({ cls: 'mn-start-choices' });
+		const pick = (kind: MeetingKind) => {
+			this.close();
+			this.onPick(kind);
+		};
+		const meeting = row.createEl('button', { cls: 'mod-cta mn-start-btn' });
+		meeting.createSpan({ cls: 'mn-start-icon', text: '🎙️' });
+		meeting.createSpan({ text: 'Réunion' });
+		meeting.addEventListener('click', () => pick('meeting'));
+		const journal = row.createEl('button', { cls: 'mn-start-btn' });
+		journal.createSpan({ cls: 'mn-start-icon', text: '📓' });
+		journal.createSpan({ text: 'Journal' });
+		journal.addEventListener('click', () => pick('voice'));
+		window.setTimeout(() => meeting.focus(), 0);
 	}
 
 	onClose() {

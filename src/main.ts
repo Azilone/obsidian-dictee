@@ -20,7 +20,7 @@ import type { Person } from './pipeline/speakers';
 import { decodeFile, isAudioPath } from './recorder/decode';
 import { RecordingSession, TranscriptionQueue, importRecording, loadState, saveState, type MeetingKind, type MeetingState } from './session';
 import { DEFAULT_SETTINGS, MeetingSettingTab, type MeetingSettings } from './settings';
-import { ImportMeetingModal, SpeakerNamesModal, StartMeetingModal, type ImportOptions, type StartOptions } from './ui/modals';
+import { ImportMeetingModal, SpeakerNamesModal, StartChoiceModal, type ImportOptions, type StartOptions } from './ui/modals';
 import { RecorderOverlay, type OverlayAction } from './ui/overlay';
 import { RECORDER_VIEW, RecorderView } from './ui/recorder-view';
 import { NoAccessError, listNewMemos, memoKind } from './recorder/voice-memos';
@@ -375,17 +375,16 @@ export default class MeetingNotesPlugin extends Plugin {
 		if (Platform.isMobile) return this.openRecorder();
 		if (this.session || !this.requireKey()) return;
 		const templates = await this.templateNames();
-		new StartMeetingModal(
-			this.app,
-			{
-				title: '',
+		new StartChoiceModal(this.app, (kind) => {
+			if (kind === 'voice') return void this.startFromRecorder('voice', { title: '', template: '' });
+			void this.beginRecording({
+				title: 'Réunion',
 				language: this.settings.language,
 				mode: this.canRecordCalls ? this.settings.defaultMode : 'room',
-				template: this.settings.lastTemplate || templates[0],
-			},
-			templates,
-			(o) => void this.beginRecording(o),
-		).open();
+				template: templates.includes(this.settings.defaultTemplate) ? this.settings.defaultTemplate : templates[0],
+				autoTitle: true,
+			});
+		}).open();
 	}
 
 	/** From the recorder screen: a voice note starts at once; a meeting is in person (mic only). */
@@ -398,6 +397,7 @@ export default class MeetingNotesPlugin extends Plugin {
 				language: this.settings.language,
 				mode: 'room',
 				template: kind === 'voice' ? '' : templates.includes(o.template) ? o.template : templates[0],
+				autoTitle: kind === 'meeting' && !o.title,
 			},
 			kind,
 			false,
@@ -427,6 +427,7 @@ export default class MeetingNotesPlugin extends Plugin {
 			chunks: [],
 			noteTimes: {},
 			kind,
+			autoTitle: o.autoTitle,
 		};
 		const session = new RecordingSession(this.app, this.api, this.settings, state, this.helperPath);
 		session.onChange = () => this.render();

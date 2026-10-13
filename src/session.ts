@@ -40,6 +40,8 @@ export interface MeetingState {
 	sourceFile?: string;
 	/** `voice`: a solo voice note, summarised as a bullet journal into the daily note. */
 	kind?: MeetingKind;
+	/** The title is a placeholder: the LLM names the meeting (and its folder) once the summary is written. */
+	autoTitle?: boolean;
 }
 
 export type MeetingKind = 'meeting' | 'voice';
