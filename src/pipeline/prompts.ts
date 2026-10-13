@@ -91,7 +91,8 @@ Réponds UNIQUEMENT avec un objet JSON :
 - tasks : les choses à faire ; "done": true si l'utilisateur dit que c'est déjà fait.
 - events : rendez-vous, planning, échéances ; commence par l'heure ou la date quand elle est dite ("14:00 — appel avec Paul").
 - notes : idées, constats, réflexions, ressenti ; une idée courte par élément.
-- Phrases courtes, sans puce, sans tiret, sans Markdown, sans emoji. Garde les mots de l'utilisateur (anglais, franglais compris). Ne traduis pas, n'invente rien, n'ajoute pas de conseil.
+- Surligne 1 à 3 passages vraiment importants au total (décision, échéance, tâche urgente, point bloquant) en les entourant de == (ex. "==entretien jeudi=="). Jamais une phrase entière par habitude, jamais plus de 3.
+- Phrases courtes, sans puce, sans tiret, sans autre Markdown que ==, sans emoji. Garde les mots de l'utilisateur (anglais, franglais compris). Ne traduis pas, n'invente rien, n'ajoute pas de conseil.
 - Listes vides si rien ne correspond. Pas de doublon entre tldr et notes quand la note est très courte : mets-la seulement dans tldr.`;
 }
 

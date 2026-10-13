@@ -26,3 +26,8 @@ describe('journal entry', () => {
 		expect(renderEntry('08:00', 'Journal', e, '')).toBe('### 🎙️ 08:00 · Journal\n\n- une idée\n- une autre');
 	});
 });
+
+test('keeps highlights from the model', () => {
+	const e = parseEntry('{"title":"T","tldr":"==entretien jeudi==","tasks":[],"events":[],"notes":["- ==visa== demain"]}');
+	expect(renderEntry('09:00', 'Journal', e, '')).toBe('### 🎙️ 09:00 · T\n*==entretien jeudi==*\n\n- ==visa== demain');
+});
