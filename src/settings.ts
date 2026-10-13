@@ -30,6 +30,27 @@ export interface MeetingSettings {
 	askSpeakerNames: boolean;
 	chunkMinutes: number;
 	lastTemplate: string;
+	/** Floating always-on-top recorder pill. */
+	overlay: boolean;
+	/** Exclude the overlay from screen sharing / screenshots (macOS content protection). */
+	overlayHidden: boolean;
+	overlayPos: { x: number; y: number } | null;
+	/** Minutes without speech before asking whether the meeting is still on (0 = never). */
+	idleMinutes: number;
+	/** Minutes to wait for an answer before stopping on its own. */
+	idleGraceMinutes: number;
+	/** Hard limit on a recording (0 = none). */
+	maxMinutes: number;
+	/** USD per minute of audio sent, for the live estimate. */
+	sttPricePerMinute: number;
+	/** Audio files dropped here are offered for import. */
+	importFolder: string;
+	/** Voice notes (audio + transcript), one sub-folder each. */
+	voiceFolder: string;
+	/** Moment pattern for the daily note path, e.g. `[Journal]/YYYY/YYYY-MM-DD`; empty = core Daily notes. */
+	dailyNoteFormat: string;
+	/** Last choice on the recorder screen. */
+	lastKind: 'meeting' | 'voice';
 }
 
 export const DEFAULT_SETTINGS: MeetingSettings = {
@@ -46,6 +67,17 @@ export const DEFAULT_SETTINGS: MeetingSettings = {
 	askSpeakerNames: true,
 	chunkMinutes: 8,
 	lastTemplate: '',
+	overlay: true,
+	overlayHidden: true,
+	overlayPos: null,
+	idleMinutes: 10,
+	idleGraceMinutes: 5,
+	maxMinutes: 180,
+	sttPricePerMinute: 0.0017,
+	importFolder: 'Réunions/À importer',
+	voiceFolder: 'Notes vocales',
+	dailyNoteFormat: '',
+	lastKind: 'voice',
 };
 
 export class MeetingSettingTab extends PluginSettingTab {
@@ -166,6 +198,68 @@ export class MeetingSettingTab extends PluginSettingTab {
 					}),
 			);
 
+		new Setting(containerEl).setName('Overlay').setHeading();
+
+		new Setting(containerEl)
+			.setName('Overlay flottant')
+			.setDesc('Une petite pilule toujours visible, au-dessus de toutes les applications, pendant l’enregistrement.')
+			.addToggle((t) =>
+				t.setValue(s.overlay).onChange(async (v) => {
+					s.overlay = v;
+					await save();
+				}),
+			);
+		new Setting(containerEl)
+			.setName('Invisible dans les partages d’écran')
+			.setDesc('L’overlay n’apparaît ni dans Zoom/Meet/Teams ni dans les captures d’écran.')
+			.addToggle((t) =>
+				t.setValue(s.overlayHidden).onChange(async (v) => {
+					s.overlayHidden = v;
+					await save();
+				}),
+			);
+
+		new Setting(containerEl).setName('Garde-fous').setHeading();
+
+		const minutes = (name: string, desc: string, key: 'idleMinutes' | 'idleGraceMinutes' | 'maxMinutes', fallback: number) =>
+			new Setting(containerEl)
+				.setName(name)
+				.setDesc(desc)
+				.addText((t) => {
+					t.inputEl.type = 'number';
+					t.inputEl.min = '0';
+					t.setValue(String(s[key])).onChange(async (v) => {
+						const n = Number(v);
+						s[key] = Number.isFinite(n) && n >= 0 ? n : fallback;
+						await save();
+					});
+				});
+		minutes(
+			'Demander après N minutes sans parole',
+			'Personne ne parle depuis ce temps : l’overlay demande si la réunion continue. 0 = jamais.',
+			'idleMinutes',
+			DEFAULT_SETTINGS.idleMinutes,
+		);
+		minutes(
+			'Arrêt automatique après N minutes sans réponse',
+			'Sans réponse à la question, l’enregistrement se termine tout seul et le compte rendu est généré.',
+			'idleGraceMinutes',
+			DEFAULT_SETTINGS.idleGraceMinutes,
+		);
+		minutes('Durée maximale (min)', 'L’enregistrement s’arrête de lui-même au-delà. 0 = sans limite.', 'maxMinutes', DEFAULT_SETTINGS.maxMinutes);
+		new Setting(containerEl)
+			.setName('Prix de la transcription ($ / min envoyée)')
+			.setDesc('Sert à l’estimation affichée pendant la réunion. Le coût réel est affiché à la fin.')
+			.addText((t) => {
+				t.inputEl.type = 'number';
+				t.inputEl.step = '0.0001';
+				t.setValue(String(s.sttPricePerMinute)).onChange(async (v) => {
+					const n = Number(v);
+					s.sttPricePerMinute = Number.isFinite(n) && n >= 0 ? n : DEFAULT_SETTINGS.sttPricePerMinute;
+					await save();
+				});
+			});
+
 		new Setting(containerEl).setName('Transcription et résumé').setHeading();
 
 		new Setting(containerEl)
@@ -216,6 +310,33 @@ export class MeetingSettingTab extends PluginSettingTab {
 				await save();
 			}),
 		);
+		new Setting(containerEl)
+			.setName('Dossier d’import')
+			.setDesc('Un fichier audio déposé ici (AirDrop, iCloud…) est proposé à l’import automatiquement.')
+			.addText((t) =>
+				t.setValue(s.importFolder).onChange(async (v) => {
+					s.importFolder = v.trim().replace(/\/+$/, '');
+					await save();
+				}),
+			);
+		new Setting(containerEl)
+			.setName('Dossier des notes vocales')
+			.setDesc('Audio et transcript de chaque note vocale. Le résumé va dans la note du jour.')
+			.addText((t) =>
+				t.setValue(s.voiceFolder).onChange(async (v) => {
+					s.voiceFolder = v.trim().replace(/\/+$/, '') || 'Notes vocales';
+					await save();
+				}),
+			);
+		new Setting(containerEl)
+			.setName('Note du jour')
+			.setDesc('Vide : réglages du plugin « Notes quotidiennes ». Sinon un chemin au format Moment, ex. [JOURNAL]/YYYY/[Journalier]/YYYY.MM.DD')
+			.addText((t) =>
+				t.setValue(s.dailyNoteFormat).onChange(async (v) => {
+					s.dailyNoteFormat = v.trim().replace(/\.md$/, '');
+					await save();
+				}),
+			);
 		new Setting(containerEl)
 			.setName('Dossier des modèles de résumé')
 			.setDesc('Chaque note Markdown est un modèle : son contenu décrit le résumé voulu.')

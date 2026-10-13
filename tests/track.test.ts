@@ -117,6 +117,29 @@ describe('merge', () => {
 	});
 });
 
+describe('Track telemetry', () => {
+	test('lastSpeechAt follows the meeting clock and sentSeconds counts kept audio only', () => {
+		const { track } = collect();
+		track.push(tone(2));
+		track.push(silence(60));
+		expect(track.lastSpeechAt).toBeGreaterThan(1.5);
+		expect(track.lastSpeechAt).toBeLessThan(2.2);
+		// 62 s elapsed, ~2 s spoken: an idle check sees ~60 s of silence.
+		expect(track.position - track.lastSpeechAt).toBeGreaterThan(59);
+		expect(track.sentSeconds).toBeLessThan(3.5);
+		expect(track.sentSeconds).toBeGreaterThan(2);
+	});
+
+	test('a dropped (silent) chunk is not counted as sent', () => {
+		const { track } = collect();
+		track.push(silence(5));
+		track.push(tone(0.2));
+		track.push(silence(5));
+		track.flush();
+		expect(track.sentSeconds).toBeCloseTo(0, 3);
+	});
+});
+
 describe('VAD', () => {
 	test('keyboard clicks are not speech', () => {
 		const { track, chunks } = collect();

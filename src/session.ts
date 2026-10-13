@@ -5,10 +5,10 @@
  */
 
 import { Mp3Encoder } from '@breezystack/lamejs';
-import { App, Notice, TFile, normalizePath } from 'obsidian';
+import { App, Notice, Platform, TFile, normalizePath } from 'obsidian';
 import type { OpenRouter } from './openrouter';
 import type { SttResult } from './pipeline/merge';
-import { MicSource, SystemSource, type AudioSource } from './recorder/sources';
+import { MicSource, ScreenLock, SystemSource, type AudioSource } from './recorder/sources';
 import { SAMPLE_RATE, Track, type ChunkMeta, type ChunkSink, type TrackId } from './recorder/track';
 import type { MeetingMode, MeetingSettings } from './settings';
 
@@ -34,6 +34,19 @@ export interface MeetingState {
 	error?: string;
 	/** Speaker label → name, once known. */
 	speakerNames?: Record<string, string>;
+	/** `import`: built from an existing audio file instead of a live recording. */
+	source?: 'live' | 'import';
+	/** Vault-relative path of the imported audio, for reference. */
+	sourceFile?: string;
+	/** `voice`: a solo voice note, summarised as a bullet journal into the daily note. */
+	kind?: MeetingKind;
+}
+
+export type MeetingKind = 'meeting' | 'voice';
+
+/** Only the user speaks: the mic is not diarized and is attributed to them. */
+export function micIsMe(state: MeetingState): boolean {
+	return state.mode === 'call' || state.kind === 'voice';
 }
 
 export const RAW = '.raw';
@@ -87,8 +100,8 @@ export class TranscriptionQueue {
 				const result = await this.api.transcribe(new Uint8Array(mp3), {
 					model: this.settings.sttModel,
 					language: this.state.language || undefined,
-					// In a call the mic is only you; diarizing it would just split your own voice.
-					diarize: !(chunk.track === 'mic' && this.state.mode === 'call'),
+					// In a call or a voice note the mic is only you; diarizing would just split your own voice.
+					diarize: !(chunk.track === 'mic' && micIsMe(this.state)),
 				});
 				await this.app.vault.adapter.write(rawPath(this.state.folder, `${name}.json`), JSON.stringify(result));
 				chunk.status = 'done';
@@ -109,11 +122,43 @@ export async function readChunkResult(app: App, folder: string, c: ChunkMeta): P
 	return JSON.parse(await app.vault.adapter.read(rawPath(folder, `${c.track}-${c.index}.json`))) as SttResult;
 }
 
+/** Writes finished chunks to `.raw/` and queues them; shared by live sessions and imports. */
+export class ChunkWriter {
+	private writes: Promise<void>[] = [];
+	onChunk?: () => void;
+
+	constructor(
+		private app: App,
+		private state: MeetingState,
+		private queue: TranscriptionQueue,
+	) {}
+
+	add(meta: ChunkMeta, mp3: Uint8Array): Promise<void> {
+		const p = (async () => {
+			await this.app.vault.adapter.writeBinary(
+				rawPath(this.state.folder, `${meta.track}-${meta.index}.mp3`),
+				mp3.buffer as ArrayBuffer,
+			);
+			this.state.chunks.push({ ...meta, status: 'pending' });
+			await saveState(this.app, this.state);
+			void this.queue.kick();
+			this.onChunk?.();
+		})();
+		this.writes.push(p);
+		return p;
+	}
+
+	/** Resolves once every chunk handed over so far is on disk. */
+	flush(): Promise<void> {
+		return Promise.all(this.writes).then(() => undefined);
+	}
+}
+
 class Mp3ChunkSink implements ChunkSink {
 	private enc: Mp3Encoder | null = null;
 	private parts: Uint8Array[] = [];
 
-	constructor(private session: RecordingSession) {}
+	constructor(private writer: ChunkWriter) {}
 
 	open() {
 		this.enc = new Mp3Encoder(1, SAMPLE_RATE, 48);
@@ -127,7 +172,7 @@ class Mp3ChunkSink implements ChunkSink {
 		const tail = this.enc!.flush();
 		if (tail.length) this.parts.push(tail.slice());
 		this.enc = null;
-		if (keep) void this.session.addChunk(meta, concat(this.parts));
+		if (keep) void this.writer.add(meta, concat(this.parts));
 		this.parts = [];
 	}
 }
@@ -219,10 +264,15 @@ export class RecordingSession {
 	private sources: AudioSource[] = [];
 	private archive: AudioArchive | null = null;
 	private pumpTimer = 0;
+	private writer: ChunkWriter;
 	private t0 = 0;
 	private pausedAt = 0;
 	private pausedTotal = 0;
-	private chunkWrites: Promise<void>[] = [];
+	private mic: MicSource | null = null;
+	private screen = new ScreenLock();
+	private onVisible = () => void this.wake();
+	/** Seconds of meeting clock with no audio (mobile: app in background or screen locked). */
+	lostSeconds = 0;
 	onChange?: () => void;
 
 	constructor(
@@ -234,6 +284,8 @@ export class RecordingSession {
 	) {
 		this.queue = new TranscriptionQueue(app, api, settings, state);
 		this.queue.onProgress = () => this.onChange?.();
+		this.writer = new ChunkWriter(app, state, this.queue);
+		this.writer.onChunk = () => this.onChange?.();
 	}
 
 	get notesPath() {
@@ -251,14 +303,32 @@ export class RecordingSession {
 		return this.tracks[id]?.level ?? null;
 	}
 
+	/** Seconds since anyone last spoke on any track (meeting clock). */
+	get idleSeconds(): number {
+		let last = 0;
+		for (const t of Object.values(this.tracks)) if (t && t.lastSpeechAt > last) last = t.lastSpeechAt;
+		return Math.max(0, this.elapsed - last);
+	}
+
+	/** Seconds of compacted audio sent (or about to be) for transcription, all tracks. */
+	get sentSeconds(): number {
+		let n = 0;
+		for (const t of Object.values(this.tracks)) if (t) n += t.sentSeconds;
+		return n;
+	}
+
+	get estimatedCost(): number {
+		return (this.sentSeconds / 60) * this.settings.sttPricePerMinute;
+	}
+
 	async start() {
 		const s = this.settings;
-		const opts = { chunkSeconds: s.chunkMinutes * 60, maxChunkSeconds: s.chunkMinutes * 60 + 120 };
+		const opts = chunkOptions(s);
 		const ids: TrackId[] = this.state.mode === 'call' ? ['mic', 'system'] : ['mic'];
 		await this.app.vault.adapter.mkdir(normalizePath(`${this.state.folder}/${RAW}`));
 		await saveState(this.app, this.state);
 
-		for (const id of ids) this.tracks[id] = new Track(id, new Mp3ChunkSink(this), opts);
+		for (const id of ids) this.tracks[id] = new Track(id, new Mp3ChunkSink(this.writer), opts);
 		if (s.keepAudio) this.archive = new AudioArchive(this.app, rawPath(this.state.folder, 'audio.mp3'), ids);
 
 		this.t0 = performance.now();
@@ -267,15 +337,18 @@ export class RecordingSession {
 			return (pcm: Int16Array) => {
 				if (this.paused) return;
 				const track = this.tracks[id]!;
-				if (first) {
-					// Align a late-starting source with the meeting clock.
-					first = false;
-					const late = Math.round(this.elapsed * SAMPLE_RATE) - Math.round(track.position * SAMPLE_RATE);
-					if (late > SAMPLE_RATE / 4) {
-						track.skip(late);
-						this.archive?.push(id, new Int16Array(late));
+				// Align a late-starting source with the meeting clock, and close any gap left by
+				// the OS suspending audio (mobile in background), so timestamps stay true.
+				const late = Math.round(this.elapsed * SAMPLE_RATE) - Math.round(track.position * SAMPLE_RATE);
+				if (late > (first ? SAMPLE_RATE / 4 : Platform.isMobile ? 2 * SAMPLE_RATE : Infinity)) {
+					track.skip(late);
+					this.archive?.push(id, new Int16Array(late));
+					if (!first) {
+						this.lostSeconds += late / SAMPLE_RATE;
+						this.onChange?.();
 					}
 				}
+				first = false;
 				track.push(pcm);
 				this.archive?.push(id, pcm);
 			};
@@ -284,6 +357,11 @@ export class RecordingSession {
 		const mic = new MicSource(s.micDevice, feed('mic'));
 		await mic.start();
 		this.sources.push(mic);
+		this.mic = mic;
+		if (Platform.isMobile) {
+			void this.screen.acquire();
+			document.addEventListener('visibilitychange', this.onVisible);
+		}
 
 		if (ids.includes('system')) {
 			const sys = new SystemSource(this.helperPath, feed('system'), (msg) => {
@@ -307,27 +385,22 @@ export class RecordingSession {
 		this.pumpTimer = window.setInterval(() => void this.archive?.pump(), 5000);
 	}
 
+	private async wake() {
+		if (document.visibilityState !== 'visible') return;
+		await this.screen.refresh();
+		try {
+			await this.mic?.revive();
+		} catch (e) {
+			new Notice(`Micro indisponible : ${(e as Error).message}`);
+		}
+	}
+
 	setPaused(paused: boolean) {
 		if (paused === this.paused) return;
 		if (paused) this.pausedAt = performance.now();
 		else this.pausedTotal += performance.now() - this.pausedAt;
 		this.paused = paused;
 		this.onChange?.();
-	}
-
-	addChunk(meta: ChunkMeta, mp3: Uint8Array): Promise<void> {
-		const p = (async () => {
-			await this.app.vault.adapter.writeBinary(
-				rawPath(this.state.folder, `${meta.track}-${meta.index}.mp3`),
-				mp3.buffer as ArrayBuffer,
-			);
-			this.state.chunks.push({ ...meta, status: 'pending' });
-			await saveState(this.app, this.state);
-			void this.queue.kick();
-			this.onChange?.();
-		})();
-		this.chunkWrites.push(p);
-		return p;
 	}
 
 	noteTyped(text: string, at: number) {
@@ -338,11 +411,14 @@ export class RecordingSession {
 	/** Stop capturing; returns once every chunk is written to disk (not yet transcribed). */
 	async stop() {
 		window.clearInterval(this.pumpTimer);
+		document.removeEventListener('visibilitychange', this.onVisible);
+		this.screen.release();
+		this.mic = null;
 		this.state.duration = this.elapsed;
 		for (const src of this.sources) src.stop();
 		this.sources = [];
 		for (const t of Object.values(this.tracks)) t?.flush();
-		await Promise.all(this.chunkWrites);
+		await this.writer.flush();
 		if (this.archive) {
 			await this.archive.pump(true);
 			const from = rawPath(this.state.folder, 'audio.mp3');
@@ -357,4 +433,33 @@ export class RecordingSession {
 		const file = this.app.vault.getAbstractFileByPath(this.notesPath);
 		if (file instanceof TFile) await this.app.workspace.getLeaf(false).openFile(file);
 	}
+}
+
+export function chunkOptions(s: MeetingSettings) {
+	return { chunkSeconds: s.chunkMinutes * 60, maxChunkSeconds: s.chunkMinutes * 60 + 120 };
+}
+
+/**
+ * Build a meeting from an existing audio file: the decoded PCM goes through the same VAD and
+ * chunking as a live microphone (one diarized track), then the usual transcription queue.
+ */
+export async function importRecording(
+	app: App,
+	api: OpenRouter,
+	settings: MeetingSettings,
+	state: MeetingState,
+	decode: (onPcm: (pcm: Int16Array) => void) => Promise<void>,
+): Promise<TranscriptionQueue> {
+	await app.vault.adapter.mkdir(normalizePath(`${state.folder}/${RAW}`));
+	await saveState(app, state);
+	const queue = new TranscriptionQueue(app, api, settings, state);
+	const writer = new ChunkWriter(app, state, queue);
+	const track = new Track('mic', new Mp3ChunkSink(writer), chunkOptions(settings));
+	await decode((pcm) => track.push(pcm));
+	track.flush();
+	await writer.flush();
+	state.duration = track.position;
+	state.status = 'processing';
+	await saveState(app, state);
+	return queue;
 }

@@ -1,12 +1,12 @@
 /** After the meeting: transcripts → speakers → clean transcript → summary → files. */
 
-import { App, TFile, normalizePath, stringifyYaml } from 'obsidian';
+import { App, TFile, TFolder, normalizePath, stringifyYaml } from 'obsidian';
 import { parseJson, type OpenRouter } from '../openrouter';
-import { readChunkResult, saveState, type MeetingState, type TranscriptionQueue } from '../session';
+import { micIsMe, readChunkResult, saveState, type MeetingState, type TranscriptionQueue } from '../session';
 import type { MeetingSettings } from '../settings';
 import { LANGUAGES } from '../settings';
 import { formatClock, mergeChunks, toRawLines, type Utterance } from './merge';
-import { SPEAKERS_PROMPT, cleanPrompt, summaryPrompt } from './prompts';
+import { SPEAKERS_PROMPT, cleanPrompt, summaryPrompt, voicePrompt } from './prompts';
 import { nameMap, normalizePeople, type Person } from './speakers';
 
 export interface ProcessHooks {
@@ -91,7 +91,7 @@ export async function processMeeting(
 		state.chunks.map(async (meta) => ({ meta, result: await readChunkResult(app, folder, meta) })),
 	);
 	let cost = state.chunks.reduce((n, c) => n + (c.cost ?? 0), 0);
-	const utts = mergeChunks(results, state.mode === 'call');
+	const utts = mergeChunks(results, micIsMe(state));
 	if (!utts.length) throw new Error('Aucune parole détectée dans l’enregistrement.');
 
 	// 2. Who is who.
@@ -128,12 +128,26 @@ export async function processMeeting(
 	);
 	const transcript = cleaned.map((c) => c.trim()).join('\n\n');
 
+	if (state.kind === 'voice') {
+		hooks.progress('Résumé pour le journal…');
+		const entry = await api.chat(llm, [
+			{ role: 'system', content: voicePrompt(settings.summaryLanguage) },
+			{ role: 'user', content: transcript },
+		]);
+		hooks.progress('Écriture dans la note du jour…');
+		const daily = await writeVoiceNote(app, settings, state, transcript, entry.trim());
+		state.status = 'done';
+		state.error = undefined;
+		await saveState(app, state);
+		return { summary: daily, cost };
+	}
+
 	// 4. Summary.
 	hooks.progress('Rédaction du résumé…');
 	const notesFile = app.vault.getAbstractFileByPath(normalizePath(`${folder}/Notes.md`));
 	const notes = notesFile instanceof TFile ? stripFrontmatter(await app.vault.read(notesFile)).trim() : '';
 	const template = await loadTemplate(app, settings, state.template);
-	const participants = [...new Set(Object.entries(names).filter(([l]) => l === 'me' || utts.some((u) => u.label === l)).map(([, n]) => n))];
+	const participants = [...new Set(Object.entries(names).filter(([l]) => utts.some((u) => u.label === l)).map(([, n]) => n))];
 	const summary = await api.chat(llm, [
 		{ role: 'system', content: summaryPrompt(template, settings.summaryLanguage) },
 		{
@@ -205,8 +219,13 @@ export async function writeMeetingFiles(
 		p('Transcript.md'),
 		frontmatter({ ...meta, type: 'transcript' }) + `# ${state.title} — transcript\n\n${out.transcript}\n`,
 	);
-	const audioPath = p('audio.mp3');
-	const hasAudio = app.vault.getAbstractFileByPath(audioPath) instanceof TFile;
+	const folderFile = app.vault.getAbstractFileByPath(state.folder);
+	const audioFile =
+		folderFile instanceof TFolder
+			? folderFile.children.find((f): f is TFile => f instanceof TFile && f.basename === 'audio' && f.extension !== 'md')
+			: undefined;
+	const audioPath = audioFile?.path ?? p('audio.mp3');
+	const hasAudio = !!audioFile;
 	const summaryPath = p('Résumé.md');
 	const nav = [
 		link(transcript.path, summaryPath, 'Transcript'),
@@ -215,12 +234,75 @@ export async function writeMeetingFiles(
 	]
 		.filter(Boolean)
 		.join(' · ');
-	const audioFile = app.vault.getAbstractFileByPath(audioPath);
-	const audioEmbed = audioFile instanceof TFile ? `\n\n!${app.fileManager.generateMarkdownLink(audioFile, summaryPath)}` : '';
+	const audioEmbed = audioFile ? `\n\n!${app.fileManager.generateMarkdownLink(audioFile, summaryPath)}` : '';
 	const summary = await upsert(
 		app,
 		summaryPath,
 		frontmatter({ ...meta, type: 'réunion' }) + `# ${state.title}\n\n${nav}${audioEmbed}\n\n${out.summary}\n`,
 	);
 	return { transcript, summary };
+}
+
+/** Path of the daily note for `date`: the plugin setting, else the core Daily notes options. */
+export function dailyNotePath(app: App, settings: MeetingSettings, date: string): string {
+	const m = window.moment(date);
+	if (settings.dailyNoteFormat.trim()) return normalizePath(`${m.format(settings.dailyNoteFormat.trim())}.md`);
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const core = (app as any).internalPlugins?.getPluginById?.('daily-notes')?.instance?.options ?? {};
+	const folder = String(core.folder ?? '').replace(/^\/+|\/+$/g, '');
+	const name = m.format(core.format || 'YYYY-MM-DD');
+	return normalizePath(folder ? `${folder}/${name}.md` : `${name}.md`);
+}
+
+/** Transcript next to the audio, and a bullet-journal block appended to the day's note. */
+export async function writeVoiceNote(
+	app: App,
+	settings: MeetingSettings,
+	state: MeetingState,
+	transcript: string,
+	entry: string,
+): Promise<TFile> {
+	const meta = {
+		date: window.moment(state.startedAt).format('YYYY-MM-DDTHH:mm'),
+		durée: `${Math.max(1, Math.round(state.duration / 60))} min`,
+		type: 'note vocale',
+	};
+	const transcriptFile = await upsert(
+		app,
+		normalizePath(`${state.folder}/Transcript.md`),
+		frontmatter(meta) + `# ${state.title} — transcript\n\n${transcript}\n`,
+	);
+
+	const dailyPath = dailyNotePath(app, settings, state.startedAt);
+	const dir = dailyPath.split('/').slice(0, -1).join('/');
+	if (dir && !app.vault.getAbstractFileByPath(dir)) await app.vault.createFolder(dir);
+	let daily = app.vault.getAbstractFileByPath(dailyPath);
+	if (!(daily instanceof TFile)) daily = await app.vault.create(dailyPath, '');
+	const file = daily as TFile;
+
+	const folder = app.vault.getAbstractFileByPath(state.folder);
+	const audio =
+		folder instanceof TFolder
+			? folder.children.find((f): f is TFile => f instanceof TFile && f.basename === 'audio' && f.extension !== 'md')
+			: undefined;
+	const links = [
+		app.fileManager.generateMarkdownLink(transcriptFile, file.path, undefined, 'Transcript'),
+		audio ? app.fileManager.generateMarkdownLink(audio, file.path, undefined, 'Audio') : null,
+	]
+		.filter(Boolean)
+		.join(' · ');
+	const block = `### 🎙️ ${window.moment(state.startedAt).format('HH:mm')} · ${state.title}\n${links}\n\n${entry}\n`;
+	// Re-processing replaces the block for this note instead of adding a second one.
+	const marker = `<!-- mn:${state.folder} -->`;
+	await app.vault.process(file, (data) => {
+		const tagged = `${marker}\n${block}${marker.replace('mn:', '/mn:')}`;
+		const re = new RegExp(`${escapeRe(marker)}[\\s\\S]*?${escapeRe(marker.replace('mn:', '/mn:'))}`);
+		if (re.test(data)) return data.replace(re, tagged);
+		return `${data.replace(/\s+$/, '')}${data.trim() ? '\n\n' : ''}${tagged}\n`;
+	});
+	return file;
+}
+
+function escapeRe(s: string) {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

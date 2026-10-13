@@ -52,10 +52,46 @@
 	to { transform: rotate(360deg); }
 }
 
-/* ─── Ribbon & header ─── */
-.mn-ribbon-recording,
-.mn-header-stop {
+/* ─── Ribbon & mini player ─── */
+.mn-ribbon-recording {
 	color: var(--color-red) !important;
+}
+.mn-player {
+	position: absolute;
+	bottom: 16px;
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: var(--layer-popover);
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 4px 6px 4px 12px;
+	border-radius: var(--radius-xl, 24px);
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	box-shadow: var(--shadow-l);
+	font-variant-numeric: tabular-nums;
+}
+.mn-player .mn-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--color-red);
+	animation: mn-pulse 1.4s ease-in-out infinite;
+}
+.mn-player.is-paused .mn-dot {
+	background: var(--text-muted);
+	animation: none;
+}
+.mn-player.is-paused .mn-time {
+	color: var(--text-faint);
+}
+.mn-player .mn-meters {
+	display: inline-flex;
+	gap: 3px;
+}
+.mn-player-btn.mod-stop {
+	color: var(--color-red);
 }
 
 /* ─── Modals ─── */
@@ -93,4 +129,169 @@
 .mn-key-status[data-state='pending'],
 .mn-key-status[data-state='none'] {
 	color: var(--text-faint);
+}
+
+/* ─── Notices ─── */
+.mn-notice-row {
+	display: flex;
+	gap: 8px;
+}
+.mn-notice-row .mn-notice-btn.mod-warning {
+	color: var(--text-on-accent);
+	background-color: var(--color-red);
+}
+
+/* ─── Recorder screen (phone first) ─── */
+.mn-recorder {
+	display: flex;
+	justify-content: center;
+}
+.mn-rec-body {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 18px;
+	width: 100%;
+	max-width: 420px;
+	padding: 32px 16px calc(32px + env(safe-area-inset-bottom));
+	text-align: center;
+}
+.mn-rec-seg {
+	display: flex;
+	width: 100%;
+	padding: 4px;
+	gap: 4px;
+	border-radius: 14px;
+	background: var(--background-modifier-hover);
+}
+.mn-rec-seg-btn {
+	flex: 1;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	height: 44px;
+	border-radius: 10px;
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-muted);
+	font-size: var(--font-ui-medium);
+}
+.mn-rec-seg-btn.is-active {
+	background: var(--background-primary);
+	color: var(--text-normal);
+	box-shadow: var(--shadow-s);
+}
+.mn-rec-form {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	width: 100%;
+}
+.mn-rec-form input,
+.mn-rec-form select {
+	width: 100%;
+	height: 44px;
+	font-size: 16px; /* no zoom-on-focus on iOS */
+}
+.mn-rec-hint,
+.mn-rec-note,
+.mn-rec-status,
+.mn-rec-lost {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	line-height: 1.45;
+}
+.mn-rec-lost {
+	color: var(--text-warning);
+}
+.mn-rec-note {
+	margin-top: 12px;
+	color: var(--text-faint);
+}
+.mn-rec-big {
+	width: 132px;
+	height: 132px;
+	margin-top: 16px;
+	border-radius: 50%;
+	padding: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: var(--background-primary);
+	border: 6px solid var(--background-modifier-border);
+	box-shadow: var(--shadow-s);
+}
+.mn-rec-big-dot {
+	width: 92px;
+	height: 92px;
+	border-radius: 50%;
+	background: var(--color-red);
+	transition: transform 120ms ease;
+}
+.mn-rec-big:active .mn-rec-big-dot {
+	transform: scale(0.92);
+}
+.mn-rec-big:disabled {
+	opacity: 0.5;
+}
+.mn-rec-label {
+	font-weight: var(--font-semibold);
+}
+.mn-rec-kind {
+	color: var(--text-muted);
+}
+.mn-rec-time {
+	font-size: 56px;
+	font-weight: 300;
+	font-variant-numeric: tabular-nums;
+	line-height: 1;
+}
+.mn-recorder.is-paused .mn-rec-time {
+	color: var(--text-faint);
+	animation: mn-pulse 1.4s ease-in-out infinite;
+}
+.mn-rec-meter {
+	width: 70%;
+	height: 6px;
+	border-radius: 3px;
+	background: var(--background-modifier-border);
+	overflow: hidden;
+}
+.mn-rec-meter-fill {
+	height: 100%;
+	background: var(--color-green);
+	transform-origin: left;
+	transform: scaleX(var(--level, 0));
+	transition: transform 120ms linear;
+}
+.mn-rec-controls {
+	display: flex;
+	gap: 28px;
+	margin-top: 12px;
+}
+.mn-rec-ctl {
+	width: 84px;
+	height: 84px;
+	border-radius: 50%;
+	padding: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+.mn-rec-ctl svg {
+	width: 32px;
+	height: 32px;
+}
+.mn-rec-ctl.mod-stop {
+	background: var(--color-red);
+	color: white;
+}
+.mn-rec-ctl.mod-stop svg {
+	fill: currentColor;
+}
+.mn-rec-link {
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-accent);
 }

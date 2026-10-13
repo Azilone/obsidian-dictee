@@ -78,3 +78,18 @@ Feedback donné et reçu, dans les deux sens.
 ## À reprendre au prochain 1:1
 `,
 };
+
+/** Voice note → bullet journal entry for the daily note. */
+export function voicePrompt(summaryLanguage: string) {
+	return `Tu transformes une note vocale de l'utilisateur (journaling parlé, idées, choses à faire) en entrée de bullet journal, en ${summaryLanguage}, en Markdown pour Obsidian. Elle sera ajoutée telle quelle à sa note du jour.
+
+Règles :
+- Liste à puces courtes, une idée par ligne. Pas de paragraphe, pas d'introduction ni de conclusion.
+- Tâches : "- [ ] action". Si l'utilisateur dit qu'une chose est déjà faite : "- [x] action".
+- Événements, rendez-vous, planning : "- HH:MM : événement" quand une heure est dite, sinon "- événement (date)".
+- Notes, idées, réflexions : "- " simple ; une sous-puce (tabulation) pour un détail.
+- Regroupe sous des libellés en gras, uniquement s'ils ont du contenu, dans cet ordre : **✅ Tâches**, **📅 Planning**, **📝 Notes**, **💭 Ressenti**.
+- Garde les mots de l'utilisateur (anglais, franglais compris). Ne traduis pas, n'invente rien, n'ajoute pas de conseil.
+- Mets en **gras** une ou deux choses vraiment importantes au plus (deadline, décision).
+- Pas de titre, pas de frontmatter, pas de tags.`;
+}

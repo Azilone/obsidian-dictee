@@ -82,6 +82,10 @@ export class Track {
 	readonly opts: TrackOptions;
 	/** Level of the last frame in dBFS, for meters. */
 	level = -120;
+	/** Meeting-clock position (s) of the last frame detected as speech; -1 before any speech. */
+	lastSpeechAt = -1;
+	/** Seconds of compacted audio handed to the sink so far (sent or about to be). */
+	sentSeconds = 0;
 
 	private pending = new Int16Array(FRAME);
 	private pendingLen = 0;
@@ -155,6 +159,7 @@ export class Track {
 		const speech = loud && (this.hang > 0 || this.loudRun >= ATTACK_FRAMES);
 
 		if (speech) {
+			this.lastSpeechAt = at / SAMPLE_RATE;
 			this.hang = Math.round(this.opts.hangMs / 20);
 			for (const r of this.ring) this.emit(r.frame, r.abs, false);
 			this.ring = [];
@@ -182,6 +187,7 @@ export class Track {
 		if (at !== this.lastEmittedEnd) this.map.push({ out: this.chunkLen, src: at });
 		this.lastEmittedEnd = at + frame.length;
 		this.chunkLen += frame.length;
+		this.sentSeconds += frame.length / SAMPLE_RATE;
 		if (speech) this.speechFrames++;
 		this.sink.write(frame);
 	}
@@ -199,6 +205,7 @@ export class Track {
 		};
 		const keep = speech >= this.opts.minSpeechSeconds;
 		if (keep) this.index++;
+		else this.sentSeconds -= this.chunkLen / SAMPLE_RATE;
 		this.sink.close(meta, keep);
 	}
 }

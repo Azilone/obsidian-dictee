@@ -3,6 +3,7 @@
 //
 // macOS 14.4+: Core Audio process tap on all processes + private aggregate device.
 
+import AVFoundation
 import CoreAudio
 import Darwin
 import Foundation
@@ -81,10 +82,81 @@ func defaultOutputUID() -> String {
 	return uid!.takeRetainedValue() as String
 }
 
+// ─── Decode mode: `--decode <file>` streams any audio file as s16le 16 kHz mono ───
+func decodeFile(_ path: String) -> Never {
+	signal(SIGPIPE, SIG_IGN)
+	let url = URL(fileURLWithPath: path)
+	let file: AVAudioFile
+	do {
+		file = try AVAudioFile(forReading: url)
+	} catch {
+		fail("Impossible d'ouvrir le fichier audio : \(error.localizedDescription)")
+	}
+	guard let outFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: OUT_RATE, channels: 1, interleaved: true),
+		let converter = AVAudioConverter(from: file.processingFormat, to: outFormat)
+	else { fail("Format audio non pris en charge") }
+	converter.downmix = true
+	let total = file.length
+	emit(["event": "started", "sampleRate": Int(OUT_RATE), "channels": 1, "format": "s16le",
+		"sourceRate": file.processingFormat.sampleRate, "sourceChannels": Int(file.processingFormat.channelCount),
+		"frames": Int(total)])
+	let inCap: AVAudioFrameCount = 65536
+	guard let inBuf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: inCap) else { fail("Mémoire insuffisante") }
+	let outCap = AVAudioFrameCount(Double(inCap) * OUT_RATE / file.processingFormat.sampleRate) + 4096
+	let stdout = FileHandle.standardOutput
+	var eof = false
+	var readError: Error?
+	var lastReport = 0.0
+	while !eof {
+		guard let outBuf = AVAudioPCMBuffer(pcmFormat: outFormat, frameCapacity: outCap) else { fail("Mémoire insuffisante") }
+		var convError: NSError?
+		let status = converter.convert(to: outBuf, error: &convError) { _, outStatus in
+			if eof { outStatus.pointee = .endOfStream; return nil }
+			do {
+				inBuf.frameLength = 0
+				try file.read(into: inBuf, frameCount: inCap)
+			} catch {
+				// -39 (eofErr): some decoders throw on the last partial read instead of returning short.
+				if (error as NSError).code != -39 { readError = error }
+				eof = true
+				if inBuf.frameLength == 0 {
+					outStatus.pointee = .endOfStream
+					return nil
+				}
+				outStatus.pointee = .haveData
+				return inBuf
+			}
+			if inBuf.frameLength == 0 {
+				eof = true
+				outStatus.pointee = .endOfStream
+				return nil
+			}
+			outStatus.pointee = .haveData
+			return inBuf
+		}
+		if let e = readError { fail("Lecture impossible : \(e.localizedDescription)") }
+		if status == .error { fail("Conversion impossible : \(convError?.localizedDescription ?? "?")") }
+		if outBuf.frameLength > 0, let data = outBuf.int16ChannelData {
+			stdout.write(Data(bytes: data[0], count: Int(outBuf.frameLength) * 2))
+		}
+		let ratio = total > 0 ? Double(file.framePosition) / Double(total) : 1
+		if ratio - lastReport >= 0.02 || eof {
+			lastReport = ratio
+			emit(["event": "progress", "ratio": min(1, ratio)])
+		}
+		if status == .endOfStream { break }
+	}
+	emit(["event": "done"])
+	exit(0)
+}
+
 // ─── Main ───
 if CommandLine.arguments.contains("--version") {
 	print("meeting-tap 0.1.0")
 	exit(0)
+}
+if let i = CommandLine.arguments.firstIndex(of: "--decode"), i + 1 < CommandLine.arguments.count {
+	decodeFile(CommandLine.arguments[i + 1])
 }
 respawnDisclaimed()
 

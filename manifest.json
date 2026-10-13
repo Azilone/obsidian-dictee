@@ -5,5 +5,5 @@
   "minAppVersion": "1.11.4",
   "description": "Record meetings without a bot, take notes, and get a diarized transcript and an AI summary in your vault.",
   "author": "Kevin",
-  "isDesktopOnly": true
+  "isDesktopOnly": false
 }

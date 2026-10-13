@@ -11,14 +11,18 @@ import {
 	type Editor,
 	type MarkdownFileInfo,
 } from 'obsidian';
+import type { Moment } from 'moment';
 import { OpenRouter } from './openrouter';
 import { formatClock, type Utterance } from './pipeline/merge';
 import { processMeeting } from './pipeline/process';
 import { DEFAULT_TEMPLATES } from './pipeline/prompts';
 import type { Person } from './pipeline/speakers';
-import { RecordingSession, TranscriptionQueue, loadState, type MeetingState } from './session';
+import { decodeFile, isAudioPath } from './recorder/decode';
+import { RecordingSession, TranscriptionQueue, importRecording, loadState, saveState, type MeetingKind, type MeetingState } from './session';
 import { DEFAULT_SETTINGS, MeetingSettingTab, type MeetingSettings } from './settings';
-import { SpeakerNamesModal, StartMeetingModal, type StartOptions } from './ui/modals';
+import { ImportMeetingModal, SpeakerNamesModal, StartMeetingModal, type ImportOptions, type StartOptions } from './ui/modals';
+import { RecorderOverlay, type OverlayAction } from './ui/overlay';
+import { RECORDER_VIEW, RecorderView } from './ui/recorder-view';
 
 const SECRET_ID = 'meeting-notes-openrouter';
 
@@ -32,17 +36,27 @@ export default class MeetingNotesPlugin extends Plugin {
 	private statusEl!: HTMLElement;
 	private ribbonEl!: HTMLElement;
 	private tick = 0;
-	private headerActions = new WeakMap<MarkdownView, HTMLElement>();
+	private players = new WeakMap<MarkdownView, Player>();
 	private lastLine = { file: '', line: -1, at: 0 };
+	private overlay: RecorderOverlay | null = null;
+	private overlayWarned = false;
+	/** Pending "still in a meeting?" question. */
+	private idle: { minutes: number; deadline: number; notice: Notice } | null = null;
+	/** Meeting-clock time (s) before which the idle question is not asked again. */
+	private idleSnoozeUntil = 0;
 
 	async onload() {
 		await this.loadSettings();
 		this.api = new OpenRouter(() => this.apiKey());
 
 		this.addSettingTab(new MeetingSettingTab(this.app, this));
-		this.ribbonEl = this.addRibbonIcon('mic', 'Démarrer une réunion', () =>
-			this.session ? this.showRecorderMenu(this.ribbonEl) : this.startMeeting(),
-		);
+		this.registerView(RECORDER_VIEW, (leaf) => new RecorderView(leaf, this));
+		this.ribbonEl = this.addRibbonIcon('mic', 'Démarrer une réunion', () => {
+			// On the phone the recorder screen (big button) is the way in.
+			if (Platform.isMobile) void this.openRecorder();
+			else if (this.session) this.showRecorderMenu(this.ribbonEl);
+			else void this.startMeeting();
+		});
 		this.statusEl = this.addStatusBarItem();
 		this.statusEl.addClass('mn-status', 'mod-clickable');
 		this.statusEl.addEventListener('click', () => {
@@ -56,6 +70,22 @@ export default class MeetingNotesPlugin extends Plugin {
 			checkCallback: (checking) => {
 				if (this.session) return false;
 				if (!checking) this.startMeeting();
+				return true;
+			},
+		});
+		this.addCommand({
+			id: 'open-recorder',
+			name: 'Ouvrir l’enregistreur',
+			icon: 'mic',
+			callback: () => void this.openRecorder(),
+		});
+		this.addCommand({
+			id: 'voice-note',
+			name: 'Enregistrer une note vocale',
+			icon: 'audio-lines',
+			checkCallback: (checking) => {
+				if (this.session) return false;
+				if (!checking) void this.startFromRecorder('voice', { title: '', template: '' }).then(() => this.openRecorder());
 				return true;
 			},
 		});
@@ -90,6 +120,22 @@ export default class MeetingNotesPlugin extends Plugin {
 			},
 		});
 		this.addCommand({
+			id: 'import',
+			name: 'Importer un enregistrement audio',
+			icon: 'file-audio',
+			callback: () => void this.importFromDialog(),
+		});
+		this.addCommand({
+			id: 'show-overlay',
+			name: 'Afficher l’overlay d’enregistrement',
+			icon: 'picture-in-picture-2',
+			checkCallback: (checking) => {
+				if (!this.session) return false;
+				if (!checking) this.showOverlay(true);
+				return true;
+			},
+		});
+		this.addCommand({
 			id: 'reprocess',
 			name: 'Retraiter la réunion (transcript + résumé)',
 			icon: 'refresh-cw',
@@ -104,12 +150,20 @@ export default class MeetingNotesPlugin extends Plugin {
 		this.registerEvent(
 			this.app.workspace.on('editor-change', (editor: Editor, info: MarkdownFileInfo) => this.onEditorChange(editor, info)),
 		);
-		this.registerEvent(this.app.workspace.on('layout-change', () => this.syncHeaderActions()));
+		this.registerEvent(this.app.workspace.on('layout-change', () => this.syncPlayers()));
 		this.registerEvent(
 			this.app.workspace.on('file-menu', (menu, file) => {
+				if (file instanceof TFile && isAudioPath(file.path) && file.basename !== 'audio') {
+					menu.addItem((i) =>
+						i
+							.setTitle('Créer une réunion depuis cet audio')
+							.setIcon('file-audio')
+							.onClick(() => void this.importAudio(file)),
+					);
+				}
 				const folder = file instanceof TFolder ? file.path : file.parent?.path;
 				if (!folder || this.processing.has(folder) || this.session?.state.folder === folder) return;
-				if (!this.app.vault.getAbstractFileByPath(normalizePath(`${folder}/Notes.md`))) return;
+				if (!this.isMeetingFolder(folder)) return;
 				menu.addItem((i) =>
 					i
 						.setTitle('Retraiter la réunion')
@@ -119,11 +173,55 @@ export default class MeetingNotesPlugin extends Plugin {
 			}),
 		);
 		this.register(() => window.clearInterval(this.tick));
-		this.app.workspace.onLayoutReady(() => void this.recoverInterrupted());
+		this.app.workspace.onLayoutReady(() => {
+			void this.recoverInterrupted();
+			if (this.settings.importFolder) void this.ensureFolder(this.settings.importFolder).catch(() => {});
+			// A recording dropped in the import folder (AirDrop, iCloud, Dictaphone…) is offered right
+			// away, and the ones that arrived while Obsidian was closed are offered at startup.
+			const inbox = (f: unknown): f is TFile =>
+				f instanceof TFile && isAudioPath(f.path) && !!this.settings.importFolder && f.parent?.path === normalizePath(this.settings.importFolder);
+			this.registerEvent(
+				this.app.vault.on('create', (f) => {
+					if (inbox(f)) this.offerImport([f]);
+				}),
+			);
+			const dir = this.app.vault.getAbstractFileByPath(normalizePath(this.settings.importFolder || '/'));
+			if (dir instanceof TFolder) {
+				const waiting = dir.children.filter(inbox);
+				if (waiting.length) this.offerImport(waiting);
+			}
+		});
 		this.render();
 	}
 
+	private offerImport(files: TFile[]) {
+		const n = new Notice('', 0);
+		n.messageEl.empty();
+		n.messageEl.createDiv({
+			text: files.length === 1 ? `Nouvel enregistrement : ${files[0].name}` : `${files.length} enregistrements à traiter`,
+		});
+		n.messageEl
+			.createEl('button', { text: 'Traiter', cls: 'mod-cta mn-notice-btn' })
+			.addEventListener('click', async () => {
+				n.hide();
+				for (const f of files) await this.importAudio(f);
+			});
+	}
+
+	async openRecorder() {
+		const existing = this.app.workspace.getLeavesOfType(RECORDER_VIEW)[0];
+		const leaf = existing ?? this.app.workspace.getLeaf(Platform.isMobile ? false : 'tab');
+		if (!existing) await leaf.setViewState({ type: RECORDER_VIEW, active: true });
+		await this.app.workspace.revealLeaf(leaf);
+	}
+
+	processingLabel(): string | null {
+		return this.processing.size ? [...this.processing.values()][0] : null;
+	}
+
 	onunload() {
+		this.overlay?.destroy();
+		this.overlay = null;
 		// Never drop a recording silently: write out what we have.
 		if (this.session) void this.session.stop();
 	}
@@ -136,15 +234,15 @@ export default class MeetingNotesPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
+	/** Native helper (desktop only); empty on mobile, where there is no file system path. */
 	get helperPath(): string {
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const base = (this.app.vault.adapter as any).getBasePath?.() as string;
-		return `${base}/${this.manifest.dir}/meeting-tap`;
+		const base = this.vaultBasePath();
+		return base ? `${base}/${this.manifest.dir}/meeting-tap` : '';
 	}
 
 	// ─── Templates ───
 
-	private async templateNames(): Promise<string[]> {
+	async templateNames(): Promise<string[]> {
 		const folder = normalizePath(this.settings.templatesFolder);
 		let dir = this.app.vault.getAbstractFileByPath(folder);
 		if (!dir) {
@@ -188,30 +286,47 @@ export default class MeetingNotesPlugin extends Plugin {
 		}
 	}
 
+	/** `Réunions/YYYY-MM-DD HHmm Title`, suffixed when it already exists; created on disk. */
+	private async newMeetingFolder(title: string, when: Moment, kind: MeetingKind = 'meeting'): Promise<string> {
+		const safeTitle = title.replace(/[\\/:*?"<>|#^[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+		const root = kind === 'voice' ? this.settings.voiceFolder : this.settings.rootFolder;
+		let folder = normalizePath(`${root}/${when.format('YYYY-MM-DD HHmm')} ${safeTitle}`);
+		for (let i = 2; this.app.vault.getAbstractFileByPath(folder); i++) folder = folder.replace(/( \(\d+\))?$/, ` (${i})`);
+		await this.ensureFolder(folder);
+		return folder;
+	}
+
 	// ─── Recording ───
 
+	/** No key yet: say so with a shortcut to the settings. Returns false when missing. */
+	private requireKey(): boolean {
+		if (this.apiKey()) return true;
+		const n = new Notice('', 10000);
+		n.messageEl.empty();
+		n.messageEl.createDiv({ text: 'Ajoute ta clé OpenRouter dans les réglages (à faire sur chaque appareil).' });
+		n.messageEl
+			.createEl('button', { text: 'Ouvrir les réglages', cls: 'mod-cta mn-notice-btn' })
+			.addEventListener('click', () => {
+				n.hide();
+				this.openSettings();
+			});
+		return false;
+	}
+
+	/** System audio needs the macOS helper; anywhere else a meeting is mic-only (in person). */
+	private get canRecordCalls(): boolean {
+		return Platform.isDesktopApp && Platform.isMacOS;
+	}
+
 	async startMeeting() {
-		if (this.session) return;
-		if (!Platform.isDesktopApp) return new Notice('Meeting Notes fonctionne sur Obsidian desktop.');
-		if (!this.apiKey()) {
-			const n = new Notice('', 10000);
-			n.messageEl.empty();
-			n.messageEl.createDiv({ text: 'Ajoute ta clé OpenRouter avant de démarrer une réunion.' });
-			n.messageEl
-				.createEl('button', { text: 'Ouvrir les réglages', cls: 'mod-cta mn-notice-btn' })
-				.addEventListener('click', () => {
-					n.hide();
-					this.openSettings();
-				});
-			return;
-		}
+		if (this.session || !this.requireKey()) return;
 		const templates = await this.templateNames();
 		new StartMeetingModal(
 			this.app,
 			{
 				title: '',
 				language: this.settings.language,
-				mode: Platform.isMacOS ? this.settings.defaultMode : 'room',
+				mode: this.canRecordCalls ? this.settings.defaultMode : 'room',
 				template: this.settings.lastTemplate || templates[0],
 			},
 			templates,
@@ -219,16 +334,31 @@ export default class MeetingNotesPlugin extends Plugin {
 		).open();
 	}
 
-	private async beginRecording(o: StartOptions) {
-		const now = window.moment();
-		const safeTitle = o.title.replace(/[\\/:*?"<>|#^[\]]/g, ' ').replace(/\s+/g, ' ').trim();
-		let folder = normalizePath(`${this.settings.rootFolder}/${now.format('YYYY-MM-DD HHmm')} ${safeTitle}`);
-		for (let i = 2; this.app.vault.getAbstractFileByPath(folder); i++) folder = folder.replace(/( \(\d+\))?$/, ` (${i})`);
-		await this.ensureFolder(folder);
-		const notes = await this.app.vault.create(normalizePath(`${folder}/Notes.md`), `# ${o.title}\n\n`);
+	/** From the recorder screen: a voice note starts at once; a meeting is in person (mic only). */
+	async startFromRecorder(kind: MeetingKind, o: { title: string; template: string }) {
+		if (this.session || !this.requireKey()) return;
+		const templates = await this.templateNames();
+		await this.beginRecording(
+			{
+				title: o.title || (kind === 'voice' ? 'Note vocale' : 'Réunion'),
+				language: this.settings.language,
+				mode: 'room',
+				template: kind === 'voice' ? '' : templates.includes(o.template) ? o.template : templates[0],
+			},
+			kind,
+			false,
+		);
+	}
 
-		this.settings.lastTemplate = o.template;
-		await this.saveSettings();
+	private async beginRecording(o: StartOptions, kind: MeetingKind = 'meeting', openNotes = true) {
+		const now = window.moment();
+		const folder = await this.newMeetingFolder(o.title, now, kind);
+		const notes = kind === 'meeting' ? await this.app.vault.create(normalizePath(`${folder}/Notes.md`), `# ${o.title}\n\n`) : null;
+
+		if (kind === 'meeting') {
+			this.settings.lastTemplate = o.template;
+			await this.saveSettings();
+		}
 
 		const state: MeetingState = {
 			version: 1,
@@ -242,6 +372,7 @@ export default class MeetingNotesPlugin extends Plugin {
 			status: 'recording',
 			chunks: [],
 			noteTimes: {},
+			kind,
 		};
 		const session = new RecordingSession(this.app, this.api, this.settings, state, this.helperPath);
 		session.onChange = () => this.render();
@@ -253,22 +384,39 @@ export default class MeetingNotesPlugin extends Plugin {
 			return;
 		}
 		this.session = session;
-		const leaf = this.app.workspace.getLeaf(false);
-		await leaf.openFile(notes, { active: true });
-		const view = leaf.view;
-		if (view instanceof MarkdownView) {
-			view.editor.focus();
-			view.editor.setCursor(view.editor.lastLine(), 0);
+		if (notes && openNotes) {
+			const leaf = this.app.workspace.getLeaf(false);
+			await leaf.openFile(notes, { active: true });
+			const view = leaf.view;
+			if (view instanceof MarkdownView) {
+				view.editor.focus();
+				view.editor.setCursor(view.editor.lastLine(), 0);
+			}
 		}
-		this.tick = window.setInterval(() => this.render(), 500);
+		this.tick = window.setInterval(() => this.onTick(), 500);
+		if (this.settings.overlay && Platform.isDesktopApp) this.showOverlay(false);
 		this.render();
 	}
 
-	async stopMeeting() {
+	private onTick() {
+		this.render();
+		this.guard();
+		if (this.overlay) {
+			const s = this.session;
+			if (s) this.overlay.update(this.overlayState(s));
+			void this.overlay.poll();
+		}
+	}
+
+	async stopMeeting(reason?: string) {
 		const session = this.session;
 		if (!session) return;
 		this.session = null;
 		window.clearInterval(this.tick);
+		this.overlay?.destroy();
+		this.overlay = null;
+		this.clearIdle();
+		if (reason) new Notice(reason, 10000);
 		const { folder } = session.state;
 		this.processing.set(folder, 'Finalisation de l’audio…');
 		this.render();
@@ -278,6 +426,126 @@ export default class MeetingNotesPlugin extends Plugin {
 			console.error('[meeting-notes] stop failed', e);
 		}
 		await this.runPipeline(session.state, session.queue);
+	}
+
+	// ─── Overlay & guards ───
+
+	private showOverlay(explicit: boolean) {
+		const s = this.session;
+		if (!s) return;
+		if (!this.overlay) {
+			this.overlay = new RecorderOverlay({
+				hiddenFromCapture: this.settings.overlayHidden,
+				position: this.settings.overlayPos,
+				onAction: (a, payload) => this.onOverlayAction(a, payload),
+			});
+		}
+		const ok = this.overlay.show();
+		if (!ok) {
+			this.overlay = null;
+			if (explicit || !this.overlayWarned) new Notice('Overlay indisponible dans cette version d’Obsidian.');
+			this.overlayWarned = true;
+			return;
+		}
+		this.overlay.update(this.overlayState(s));
+	}
+
+	private overlayState(s: RecordingSession) {
+		const sent = s.sentSeconds;
+		const cost = s.estimatedCost;
+		return {
+			time: formatClock(s.elapsed),
+			paused: s.paused,
+			levels: [s.level('mic'), ...(s.state.mode === 'call' ? [s.systemError ? null : s.level('system')] : [])],
+			sent: `${Math.round(sent / 60)} min envoyées`,
+			cost: cost >= 0.005 ? `${cost.toFixed(2).replace('.', ',')} $` : '',
+			idle: this.idle ? { minutes: this.idle.minutes, left: Math.max(0, Math.round((this.idle.deadline - performance.now()) / 1000)) } : null,
+		};
+	}
+
+	private onOverlayAction(action: OverlayAction, payload?: unknown) {
+		const s = this.session;
+		switch (action) {
+			case 'toggle':
+				s?.setPaused(!s.paused);
+				break;
+			case 'mark':
+				void this.markMoment();
+				break;
+			case 'stop':
+				void this.stopMeeting();
+				break;
+			case 'continue':
+				this.continueMeeting();
+				break;
+			case 'moved':
+				this.settings.overlayPos = payload as { x: number; y: number };
+				void this.saveSettings();
+				break;
+		}
+	}
+
+	/** Auto-stop on a long silence (after asking) or past the maximum duration. */
+	private guard() {
+		const s = this.session;
+		const st = this.settings;
+		if (!s || s.paused) return;
+		if (st.maxMinutes > 0 && s.elapsed >= st.maxMinutes * 60) {
+			void this.stopMeeting(`Durée maximale atteinte (${st.maxMinutes} min) : réunion terminée automatiquement.`);
+			return;
+		}
+		if (st.idleMinutes <= 0) return;
+		if (this.idle) {
+			if (s.idleSeconds < 20) {
+				// Someone spoke again: question withdrawn.
+				this.clearIdle();
+			} else if (performance.now() >= this.idle.deadline) {
+				void this.stopMeeting(`Aucune parole depuis ${Math.round(s.idleSeconds / 60)} min : réunion terminée automatiquement.`);
+			}
+			return;
+		}
+		if (s.idleSeconds >= st.idleMinutes * 60 && s.elapsed >= this.idleSnoozeUntil) this.askIdle(Math.round(s.idleSeconds / 60));
+	}
+
+	private askIdle(minutes: number) {
+		const grace = Math.max(0.5, this.settings.idleGraceMinutes);
+		const notice = new Notice('', 0);
+		const el = notice.messageEl;
+		el.empty();
+		el.createDiv({ text: `Plus de parole depuis ${minutes} min — toujours en réunion ? Sans réponse, l’enregistrement s’arrête dans ${grace} min.` });
+		const row = el.createDiv({ cls: 'mn-notice-row' });
+		row.createEl('button', { text: 'Continuer', cls: 'mod-cta mn-notice-btn' }).addEventListener('click', () => this.continueMeeting());
+		row.createEl('button', { text: 'Terminer', cls: 'mod-warning mn-notice-btn' }).addEventListener('click', () => void this.stopMeeting());
+		this.idle = { minutes, deadline: performance.now() + grace * 60_000, notice };
+		this.overlay?.show();
+	}
+
+	private continueMeeting() {
+		const s = this.session;
+		if (s) this.idleSnoozeUntil = s.elapsed + Math.max(1, this.settings.idleMinutes) * 60;
+		this.clearIdle();
+	}
+
+	private clearIdle() {
+		this.idle?.notice.hide();
+		this.idle = null;
+	}
+
+	/** Drop a time marker in the notes, wherever the user is. */
+	private async markMoment() {
+		const s = this.session;
+		if (!s) return;
+		for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
+			const view = leaf.view as MarkdownView;
+			if (view.file?.path === s.notesPath) {
+				this.insertMarker(view.editor);
+				return;
+			}
+		}
+		const file = this.app.vault.getAbstractFileByPath(s.notesPath);
+		if (!(file instanceof TFile)) return;
+		const stamp = `==⏱ ${formatClock(s.elapsed)}== `;
+		await this.app.vault.process(file, (data) => `${data.replace(/\s+$/, '')}\n${stamp}\n`);
 	}
 
 	private insertMarker(editor: Editor) {
@@ -331,19 +599,168 @@ export default class MeetingNotesPlugin extends Plugin {
 					: undefined,
 			});
 			notice.hide();
-			new Notice(`Compte rendu prêt : ${state.title}${res.cost ? ` (≈ ${res.cost.toFixed(3)} $ de transcription)` : ''}`);
+			const done = state.kind === 'voice' ? 'Ajouté à la note du jour' : `Compte rendu prêt : ${state.title}`;
+			new Notice(`${done}${res.cost ? ` (≈ ${res.cost.toFixed(3)} $ de transcription)` : ''}`);
 			await this.app.workspace.getLeaf(false).openFile(res.summary);
 		} catch (e) {
 			notice.hide();
 			state.status = 'error';
 			state.error = (e as Error).message;
-			await import('./session').then((m) => m.saveState(this.app, state)).catch(() => {});
+			await saveState(this.app, state).catch(() => {});
 			console.error('[meeting-notes] processing failed', e);
 			new Notice(`Meeting Notes : ${(e as Error).message}`, 15000);
 		} finally {
 			this.processing.delete(folder);
 			this.render();
 		}
+	}
+
+	// ─── Import ───
+
+	private vaultBasePath(): string {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		return ((this.app.vault.adapter as any).getBasePath?.() as string | undefined) ?? '';
+	}
+
+	/** Native file dialog; falls back to a hint when Electron's remote module is unavailable. */
+	private async importFromDialog() {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		let remote: any = null;
+		try {
+			// eslint-disable-next-line @typescript-eslint/no-var-requires
+			remote = require('electron')?.remote;
+		} catch {
+			/* no remote */
+		}
+		if (!Platform.isDesktopApp || !remote?.dialog) {
+			return new Notice(`Dépose le fichier audio dans « ${this.settings.importFolder} » ou fais un clic droit dessus dans le coffre.`, 10000);
+		}
+		const res = await remote.dialog.showOpenDialog({
+			title: 'Importer un enregistrement',
+			properties: ['openFile'],
+			filters: [{ name: 'Audio', extensions: ['m4a', 'mp3', 'wav', 'aac', 'ogg', 'opus', 'webm', 'mp4', 'flac', 'aiff', 'caf'] }],
+		});
+		const abs: string | undefined = res?.filePaths?.[0];
+		if (!abs) return;
+		const base = this.vaultBasePath();
+		if (abs.startsWith(base + '/')) {
+			const inVault = this.app.vault.getAbstractFileByPath(normalizePath(abs.slice(base.length + 1)));
+			if (inVault instanceof TFile) return this.importAudio(inVault);
+		}
+		return this.importAudio(abs);
+	}
+
+	/**
+	 * Build a meeting or a voice note from an audio file, in the vault or (desktop) anywhere on
+	 * disk. A file from the import folder is moved into the new folder, so it is handled once.
+	 */
+	async importAudio(source: TFile | string) {
+		if (!this.requireKey()) return;
+		let name: string, base: string, ext: string, mtime: Date;
+		if (source instanceof TFile) {
+			({ name, basename: base, extension: ext } = source);
+			mtime = new Date(source.stat.mtime);
+		} else {
+			const fs = require('fs') as typeof import('fs');
+			const path = require('path') as typeof import('path');
+			name = path.basename(source);
+			ext = path.extname(source).slice(1);
+			base = path.basename(source, path.extname(source));
+			try {
+				mtime = fs.statSync(source).mtime;
+			} catch {
+				return new Notice(`Fichier introuvable : ${source}`);
+			}
+		}
+		ext = ext.toLowerCase() || 'm4a';
+		const templates = await this.templateNames();
+		const opts = await new Promise<ImportOptions | null>((resolve) =>
+			new ImportMeetingModal(
+				this.app,
+				name,
+				{
+					kind: this.settings.lastKind,
+					title: base.replace(/[_-]+/g, ' ').trim(),
+					startedAt: mtime.toISOString(),
+					language: this.settings.language,
+					template: this.settings.lastTemplate || templates[0],
+				},
+				templates,
+				resolve,
+			).open(),
+		);
+		if (!opts) return;
+		const { kind } = opts;
+
+		const folder = await this.newMeetingFolder(opts.title, window.moment(opts.startedAt), kind);
+		if (kind === 'meeting') {
+			await this.app.vault.create(normalizePath(`${folder}/Notes.md`), `# ${opts.title}\n\n`);
+			this.settings.lastTemplate = opts.template;
+		}
+		this.settings.lastKind = kind;
+		await this.saveSettings();
+
+		const state: MeetingState = {
+			version: 1,
+			title: opts.title,
+			folder,
+			startedAt: opts.startedAt,
+			language: opts.language,
+			mode: 'room',
+			template: kind === 'voice' ? '' : opts.template,
+			duration: 0,
+			status: 'processing',
+			chunks: [],
+			noteTimes: {},
+			source: 'import',
+			sourceFile: source instanceof TFile ? source.path : source,
+			kind,
+		};
+		const notice = new Notice('', 0);
+		const step = (text: string) => {
+			this.processing.set(folder, text);
+			notice.setMessage(`${opts.title} — ${text}`);
+			this.render();
+		};
+		step('Décodage de l’audio…');
+		try {
+			let file = source instanceof TFile ? source : null;
+			const dest = normalizePath(`${folder}/audio.${ext}`);
+			const inbox = this.settings.importFolder && file?.parent?.path === normalizePath(this.settings.importFolder);
+			if (file && inbox) {
+				await this.app.fileManager.renameFile(file, dest);
+				file = this.app.vault.getAbstractFileByPath(dest) as TFile;
+			} else if (this.settings.keepAudio) {
+				const bytes = file ? await this.app.vault.readBinary(file) : this.readDiskFile(source as string);
+				await this.app.vault.adapter.writeBinary(dest, bytes);
+			}
+			const readBytes = async () => (file ? this.app.vault.readBinary(file) : this.readDiskFile(source as string));
+			const basePath = this.vaultBasePath();
+			const abs = file ? (basePath ? `${basePath}/${file.path}` : '') : (source as string);
+			const queue = await importRecording(this.app, this.api, this.settings, state, (onPcm) =>
+				decodeFile(Platform.isDesktopApp ? this.helperPath : '', abs, readBytes, {
+					onPcm,
+					progress: (r) => step(`Découpage de l’audio… ${Math.round(r * 100)} %`),
+				}),
+			);
+			notice.hide();
+			this.processing.delete(folder);
+			await this.runPipeline(state, queue);
+		} catch (e) {
+			notice.hide();
+			this.processing.delete(folder);
+			this.render();
+			state.status = 'error';
+			state.error = (e as Error).message;
+			await saveState(this.app, state).catch(() => {});
+			console.error('[meeting-notes] import failed', e);
+			new Notice(`Import impossible : ${(e as Error).message}`, 15000);
+		}
+	}
+
+	private readDiskFile(abs: string): ArrayBuffer {
+		const buf = (require('fs') as typeof import('fs')).readFileSync(abs);
+		return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
 	}
 
 	async reprocess(folder: string) {
@@ -355,17 +772,23 @@ export default class MeetingNotesPlugin extends Plugin {
 	}
 
 	private activeMeetingFolder(): string | null {
-		const file = this.app.workspace.getActiveFile();
-		const folder = file?.parent?.path;
-		if (!folder) return null;
-		return this.app.vault.getAbstractFileByPath(normalizePath(`${folder}/Notes.md`)) ? folder : null;
+		const folder = this.app.workspace.getActiveFile()?.parent?.path;
+		return folder && this.isMeetingFolder(folder) ? folder : null;
+	}
+
+	/** A meeting folder has its `Notes.md`; a voice note lives directly under the voice folder. */
+	private isMeetingFolder(folder: string): boolean {
+		if (this.app.vault.getAbstractFileByPath(normalizePath(`${folder}/Notes.md`))) return true;
+		const parent = folder.split('/').slice(0, -1).join('/');
+		return !!this.settings.voiceFolder && parent === normalizePath(this.settings.voiceFolder);
 	}
 
 	/** Meetings cut short by a crash or quit: offer to finish them. */
 	private async recoverInterrupted() {
-		const root = this.app.vault.getAbstractFileByPath(normalizePath(this.settings.rootFolder));
-		if (!(root instanceof TFolder)) return;
-		for (const child of root.children) {
+		const roots = [this.settings.rootFolder, this.settings.voiceFolder]
+			.map((p) => this.app.vault.getAbstractFileByPath(normalizePath(p || '/')))
+			.filter((f): f is TFolder => f instanceof TFolder && !f.isRoot());
+		for (const child of roots.flatMap((r) => r.children)) {
 			if (!(child instanceof TFolder)) continue;
 			const state = await loadState(this.app, child.path).catch(() => null);
 			if (!state || (state.status !== 'recording' && state.status !== 'processing')) continue;
@@ -450,23 +873,79 @@ export default class MeetingNotesPlugin extends Plugin {
 		setIcon(this.ribbonEl, s ? 'square' : 'mic');
 		this.ribbonEl.setAttribute('aria-label', s ? 'Réunion en cours' : 'Démarrer une réunion');
 		this.ribbonEl.toggleClass('mn-ribbon-recording', !!s);
-		this.syncHeaderActions();
+		this.syncPlayers();
+		for (const leaf of this.app.workspace.getLeavesOfType(RECORDER_VIEW)) {
+			if (leaf.view instanceof RecorderView) leaf.view.refresh();
+		}
 	}
 
-	/** A stop button in the header of the meeting's notes while recording. */
-	private syncHeaderActions() {
+	/** A floating mini player (pause / finish) over the meeting's notes while recording. */
+	private syncPlayers() {
+		const s = this.session;
 		for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
 			const view = leaf.view as MarkdownView;
-			const want = !!this.session && view.file?.path === this.session.notesPath;
-			const existing = this.headerActions.get(view);
-			if (want && !existing) {
-				const btn = view.addAction('square', 'Terminer la réunion', () => void this.stopMeeting());
-				btn.addClass('mn-header-stop');
-				this.headerActions.set(view, btn);
-			} else if (!want && existing) {
-				existing.remove();
-				this.headerActions.delete(view);
+			const want = !!s && view.file?.path === s.notesPath;
+			let player = this.players.get(view);
+			if (want && !player) {
+				player = new Player(view.contentEl, {
+					onToggle: () => this.session?.setPaused(!this.session.paused),
+					onStop: () => void this.stopMeeting(),
+				});
+				this.players.set(view, player);
+			} else if (!want && player) {
+				player.destroy();
+				this.players.delete(view);
+				continue;
 			}
+			if (want && s) player!.update(s);
 		}
+	}
+}
+
+/** Mini player DOM: updated in place so clicks are never lost to a re-render. */
+class Player {
+	private el: HTMLElement;
+	private toggle: HTMLElement;
+	private time: HTMLElement;
+	private meters: HTMLElement;
+	private paused: boolean | null = null;
+
+	constructor(parent: HTMLElement, actions: { onToggle: () => void; onStop: () => void }) {
+		this.el = parent.createDiv({ cls: 'mn-player' });
+		this.el.createSpan({ cls: 'mn-dot' });
+		this.time = this.el.createSpan({ cls: 'mn-time' });
+		this.meters = this.el.createSpan({ cls: 'mn-meters' });
+		this.toggle = this.button('pause', 'Pause', actions.onToggle);
+		this.button('square', 'Terminer la réunion', actions.onStop).addClass('mod-stop');
+	}
+
+	private button(icon: string, label: string, onClick: () => void) {
+		const b = this.el.createEl('button', { cls: 'clickable-icon mn-player-btn', attr: { 'aria-label': label } });
+		setIcon(b, icon);
+		b.addEventListener('click', onClick);
+		return b;
+	}
+
+	update(s: RecordingSession) {
+		this.time.setText(formatClock(s.elapsed));
+		this.el.toggleClass('is-paused', s.paused);
+		if (s.paused !== this.paused) {
+			this.paused = s.paused;
+			setIcon(this.toggle, s.paused ? 'play' : 'pause');
+			this.toggle.setAttribute('aria-label', s.paused ? 'Reprendre' : 'Pause');
+		}
+		const levels = [s.level('mic'), ...(s.state.mode === 'call' ? [s.systemError ? null : s.level('system')] : [])];
+		while (this.meters.childElementCount < levels.length) {
+			this.meters.createSpan({ cls: 'mn-meter' }).createSpan({ cls: 'mn-meter-fill' });
+		}
+		levels.forEach((db, i) => {
+			const m = this.meters.children[i] as HTMLElement;
+			m.toggleClass('is-off', db == null);
+			(m.firstElementChild as HTMLElement).style.setProperty('--level', String(db == null ? 0 : Math.max(0, Math.min(1, (db + 60) / 50))));
+		});
+	}
+
+	destroy() {
+		this.el.remove();
 	}
 }

@@ -22,7 +22,8 @@ No bot joins your call. No new app. Your notes stay plain Markdown.
 2. **Write your notes** in `Notes.md`, which opens for you. Every line is timestamped silently, and *Mark this moment* drops a `⏱ 12:34` marker.
 3. **Stop** — from the status bar, the note header or a command. Audio is transcribed in the background *during* the meeting, so the result is ready seconds after you stop.
 4. **Name the speakers** — the plugin suggests names it heard in the conversation ("thanks Paul…"); you confirm or fix them.
-5. **Get a tidy folder**:
+5. **Never forget to stop** — a small always-on-top pill shows the recording, the elapsed time and the estimated cost over every app, and stays **out of screen shares and screenshots**. After a long silence the plugin asks whether the meeting is still on, and ends it by itself if nobody answers.
+6. **Get a tidy folder**:
 
 ```
 Réunions/2026-10-09 1430 Product sync/
@@ -33,6 +34,19 @@ Réunions/2026-10-09 1430 Product sync/
 ```
 
 Tasks come out as `- [ ] Paul — send the recap (Friday)`, so they work with Tasks, Dataview and Bases.
+
+### Recorded elsewhere? Import it
+
+A voice memo from your phone, a `.m4a` from a dictaphone, a `.mp3` someone sent you: drop it in `Réunions/À importer` (AirDrop, iCloud Drive, Finder) or right-click any audio file in the vault → **Créer une réunion depuis cet audio**, or use the *Importer un enregistrement audio* command to pick a file anywhere on disk. The audio goes through the same silence removal, diarization and summary as a live recording, and the result is the same folder (with the original audio kept next to it).
+
+### On your phone: voice notes and in-person meetings
+
+Tap the mic icon to open the **recorder**: pick **Voice note** or **Meeting**, then one big button to record, pause and stop.
+
+- **Voice note**: journal out loud. The audio and transcript go to `Notes vocales/`, and a short bullet-journal entry (tasks, plans, notes, mood) is appended to today's daily note (path from the core Daily notes plugin, or set your own).
+- **Meeting**: in-person, microphone only, same folder as on desktop.
+
+iOS cuts the microphone of any app in the background or behind a locked screen, Obsidian included. The screen stays on while recording, and the mic is resumed when you come back (the lost time is shown). To record with the screen locked, use Voice Memos, then *Save to Files* into the import folder of your vault: it is offered for processing the next time Obsidian opens. The OpenRouter key is stored per device, so enter it on the phone too.
 
 ## How it works
 
@@ -85,6 +99,10 @@ Templates are plain notes in `Réunions/Modèles` (configurable). The note's con
 | Summary language | French |
 | Keep audio | On |
 | Chunk length | 8 min |
+| Floating overlay | On, hidden from screen capture |
+| Ask after N min of silence / auto-stop after | 10 min / 5 min |
+| Maximum duration | 180 min |
+| Import folder | `Réunions/À importer` |
 | Models | `microsoft/mai-transcribe-2`, `anthropic/claude-haiku-5.5` (any OpenRouter model works) |
 | Folders | `Réunions`, `Réunions/Modèles` |
 
@@ -111,7 +129,7 @@ Test the helper on its own:
 ffplay -f s16le -ar 16000 -ac 1 out.pcm
 ```
 
-The helper writes raw PCM (s16le, mono, 16 kHz) on stdout and JSON status lines on stderr, and exits when its stdin closes. Any helper that follows this contract can be added for Windows (WASAPI loopback) or Linux (PipeWire monitor).
+The helper writes raw PCM (s16le, mono, 16 kHz) on stdout and JSON status lines on stderr, and exits when its stdin closes. `meeting-tap --decode file.m4a` streams any audio file in the same format (used for imports). Any helper that follows this contract can be added for Windows (WASAPI loopback) or Linux (PipeWire monitor).
 
 ### Layout
 
@@ -123,13 +141,15 @@ src/
   recorder/track.ts    VAD, silence removal, chunking, time maps
   recorder/sources.ts  microphone (AudioWorklet) and system audio (helper)
   pipeline/            merge, speaker matching, clean-up, summary, writer
-  ui/modals.ts         start dialog, speaker names
+  ui/modals.ts         start dialog, import dialog, speaker names
+  ui/overlay.ts        always-on-top recorder pill (separate Electron window)
+  recorder/decode.ts   audio file → 16 kHz PCM (helper `--decode`, Web Audio fallback)
 native/macos/          Swift Core Audio tap helper
 ```
 
 ## Roadmap
 
-- Windows and Linux system audio helpers
+- Windows and Linux system audio helpers (the overlay and import already work there if the Electron remote module is available; import then decodes with Web Audio)
 - Live transcript while recording
 - "Ask this meeting" chat
 - Auto-title from the calendar
