@@ -80,8 +80,8 @@ You pay OpenRouter directly (bring your own key). As a rough guide, transcriptio
 Requirements: macOS 14.4+, Obsidian 1.11.4+, [Bun](https://bun.sh), Xcode command line tools (`swiftc`).
 
 ```bash
-git clone https://github.com/Azilone/obsidian-meeting-notes.git dictee
-cd dictee
+git clone https://github.com/Azilone/obsidian-dictee.git
+cd obsidian-dictee
 bun install
 ./native/build.sh
 VAULT="/path/to/your/vault" bun run build
