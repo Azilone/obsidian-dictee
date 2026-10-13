@@ -62,6 +62,9 @@ export async function checkKey(key: string): Promise<KeyInfo> {
 }
 
 export class OpenRouter {
+	/** USD spent on chat completions since load (as reported by OpenRouter). */
+	spent = 0;
+
 	constructor(private getKey: () => string | null) {}
 
 	private async post(path: string, body: unknown): Promise<any> {
@@ -109,10 +112,11 @@ export class OpenRouter {
 	}
 
 	async chat(model: string, messages: ChatMessage[], opts: { json?: boolean; maxTokens?: number } = {}): Promise<string> {
-		const body: Record<string, unknown> = { model, messages, temperature: 0.2 };
+		const body: Record<string, unknown> = { model, messages, temperature: 0.2, usage: { include: true } };
 		if (opts.maxTokens) body.max_tokens = opts.maxTokens;
 		if (opts.json) body.response_format = { type: 'json_object' };
 		const res = await withRetry(() => this.post('/chat/completions', body));
+		this.spent += Number(res?.usage?.cost) || 0;
 		const text = res?.choices?.[0]?.message?.content;
 		if (typeof text !== 'string') throw new OpenRouterError('Réponse vide du modèle', 502);
 		return text;

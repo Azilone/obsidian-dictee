@@ -78,6 +78,7 @@ export async function processMeeting(
 ): Promise<ProcessResult> {
 	const { folder } = state;
 	const llm = settings.llmModel;
+	const spentBefore = api.spent;
 
 	// 1. Finish transcription (retry failed chunks once more).
 	hooks.progress('Transcription…');
@@ -144,7 +145,7 @@ export async function processMeeting(
 		state.status = 'done';
 		state.error = undefined;
 		await saveState(app, state);
-		return { summary: daily, cost };
+		return { summary: daily, cost: cost + api.spent - spentBefore };
 	}
 
 	// 4. Summary.
@@ -194,7 +195,7 @@ export async function processMeeting(
 	state.status = 'done';
 	state.error = undefined;
 	await saveState(app, state);
-	return { summary: files.summary, cost };
+	return { summary: files.summary, cost: cost + api.spent - spentBefore };
 }
 
 /** Rename the meeting (folder, `Notes.md` heading, state) after the LLM-chosen title. */

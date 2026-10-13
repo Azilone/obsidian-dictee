@@ -634,18 +634,18 @@ export default class MeetingNotesPlugin extends Plugin {
 
 	// ─── Processing ───
 
-	/** `background`: nobody is waiting (auto-import) — no questions, nothing opened, a notice to open it. */
-	private async runPipeline(state: MeetingState, queue: TranscriptionQueue, background = false) {
+	/**
+	 * `background`: nobody is waiting (auto-import) — no questions, nothing opened.
+	 * One notice per recording: « transcription en cours » then « terminée · prix ».
+	 */
+	private async runPipeline(state: MeetingState, queue: TranscriptionQueue, background = false, notice?: ProgressNotice) {
 		const { folder } = state;
-		const notice = new Notice('', 0);
-		notice.messageEl.addClass('mn-notice');
+		const progress = notice ?? new ProgressNotice(this.recordingLabel(state));
 		const update = (step: string) => {
 			this.processing.set(folder, step);
-			const { done, total } = queue.counts;
-			notice.setMessage(`${state.title} — ${step}${step.startsWith('Transcription') && total ? ` ${done}/${total}` : ''}`);
 			this.render();
 		};
-		queue.onProgress = () => update(this.processing.get(folder) ?? 'Transcription…');
+		queue.onProgress = () => this.render();
 		try {
 			const res = await processMeeting(this.app, this.api, this.settings, state, queue, {
 				progress: update,
@@ -654,32 +654,23 @@ export default class MeetingNotesPlugin extends Plugin {
 							new Promise((resolve) => new SpeakerNamesModal(this.app, people, utts, resolve).open())
 					: undefined,
 			});
-			notice.hide();
-			const done = state.kind === 'voice' ? 'Ajouté à la note du jour' : `Compte rendu prêt : ${state.title}`;
-			const msg = `${done}${res.cost ? ` (≈ ${res.cost.toFixed(3)} $ de transcription)` : ''}`;
-			if (!background) {
-				new Notice(msg);
-				await this.app.workspace.getLeaf(false).openFile(res.summary);
-			} else {
-				const n = new Notice('', 15000);
-				n.messageEl.empty();
-				n.messageEl.createDiv({ text: `🎙️ ${msg}` });
-				n.messageEl.createEl('button', { text: 'Ouvrir', cls: 'mod-cta mn-notice-btn' }).addEventListener('click', () => {
-					n.hide();
-					void this.app.workspace.getLeaf(false).openFile(res.summary);
-				});
-			}
+			const open = () => void this.app.workspace.getLeaf(false).openFile(res.summary);
+			progress.done(res.cost, open);
+			if (!background) open();
 		} catch (e) {
-			notice.hide();
 			state.status = 'error';
 			state.error = (e as Error).message;
 			await saveState(this.app, state).catch(() => {});
 			console.error('[meeting-notes] processing failed', e);
-			new Notice(`Meeting Notes : ${(e as Error).message}`, 15000);
+			progress.fail((e as Error).message);
 		} finally {
 			this.processing.delete(folder);
 			this.render();
 		}
+	}
+
+	private recordingLabel(state: MeetingState): string {
+		return state.kind === 'voice' ? 'Journal' : state.title;
 	}
 
 	// ─── Import ───
@@ -786,10 +777,9 @@ export default class MeetingNotesPlugin extends Plugin {
 			sourceFile: source instanceof TFile ? source.path : source,
 			kind,
 		};
-		const notice = new Notice('', 0);
+		const notice = new ProgressNotice(this.recordingLabel(state));
 		const step = (text: string) => {
 			this.processing.set(folder, text);
-			notice.setMessage(`${opts.title} — ${text}`);
 			this.render();
 		};
 		step('Décodage de l’audio…');
@@ -813,18 +803,16 @@ export default class MeetingNotesPlugin extends Plugin {
 					progress: (r) => step(`Découpage de l’audio… ${Math.round(r * 100)} %`),
 				}),
 			);
-			notice.hide();
 			this.processing.delete(folder);
-			await this.runPipeline(state, queue, background);
+			await this.runPipeline(state, queue, background, notice);
 		} catch (e) {
-			notice.hide();
 			this.processing.delete(folder);
 			this.render();
 			state.status = 'error';
 			state.error = (e as Error).message;
 			await saveState(this.app, state).catch(() => {});
 			console.error('[meeting-notes] import failed', e);
-			new Notice(`Import impossible : ${(e as Error).message}`, 15000);
+			notice.fail((e as Error).message);
 		}
 	}
 
@@ -1018,4 +1006,30 @@ class Player {
 	destroy() {
 		this.el.remove();
 	}
+}
+
+/** The single notice of a recording: in progress, then done with its price (click to open), or failed. */
+class ProgressNotice {
+	private notice = new Notice('', 0);
+
+	constructor(private label: string) {
+		this.notice.messageEl.addClass('mn-notice');
+		this.notice.setMessage(`🎙️ ${label} — transcription en cours…`);
+	}
+
+	done(cost: number, open: () => void) {
+		this.notice.hide();
+		const n = new Notice(`✓ ${this.label} — transcription terminée${cost > 0 ? ` · ${formatCost(cost)}` : ''}`, 8000);
+		n.messageEl.addClass('mn-notice', 'mod-clickable');
+		n.messageEl.addEventListener('click', open);
+	}
+
+	fail(message: string) {
+		this.notice.hide();
+		new Notice(`✗ ${this.label} — échec : ${message}`, 15000);
+	}
+}
+
+function formatCost(usd: number): string {
+	return `${usd.toFixed(usd < 0.1 ? 3 : 2).replace('.', ',')} $`;
 }
