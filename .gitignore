@@ -1,6 +1,7 @@
 node_modules
 main.js
 native/build
+native/bin
 .claude
 .DS_Store
 data.json
