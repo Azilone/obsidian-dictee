@@ -12,6 +12,7 @@ Notes, actions and memory, directly in your vault. **Without a meeting bot.**
 ![Obsidian](https://img.shields.io/badge/Obsidian-%E2%89%A5%201.11.4-7c3aed)
 ![Calls](https://img.shields.io/badge/calls-macOS%2014.4%2B-lightgrey)
 ![Mobile](https://img.shields.io/badge/mobile-in%20person%20%26%20journal-success)
+[![Obsidian community plugin](https://img.shields.io/badge/Obsidian-community%20plugin-7c3aed)](https://community.obsidian.md/plugins/muesli)
 
 **English** · [Français](README.fr.md)
 
@@ -72,9 +73,9 @@ Tap the mic icon to open the **recorder**: pick **Journal** or **Meeting** (in p
 
 ## Install
 
-> Muesli is not in the community plugin directory yet.
+**From Obsidian (recommended)**: *Settings → Community plugins → Browse*, search **Muesli**, then *Install* and *Enable*. Or open [Muesli in the community directory](https://community.obsidian.md/plugins/muesli) and select *Add to Obsidian*.
 
-**With BRAT (recommended)**: install [BRAT](https://github.com/TfTHacker/obsidian42-brat), then *BRAT: Add a beta plugin* → `Azilone/obsidian-muesli`. Enable **Muesli** in *Settings → Community plugins*.
+**With BRAT** (latest builds): install [BRAT](https://github.com/TfTHacker/obsidian42-brat), then *BRAT: Add a beta plugin* → `Azilone/obsidian-muesli`.
 
 **Manually**: download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/Azilone/obsidian-muesli/releases/latest) into `<your vault>/.obsidian/plugins/muesli/`, then enable **Muesli**.
 
@@ -155,7 +156,7 @@ You pay OpenRouter directly. As a rough guide: transcription is about **$0.10 pe
 
 ```bash
 bun install
-bun run check                        # type-check + tests (VAD, chunking, merge, journal)
+bun run check                        # type-check, Obsidian lint rules, tests
 ./native/build.sh                    # universal (arm64 + x86_64) helper, ad-hoc signed
 VAULT="/path/to/vault" bun run dev   # watch mode, builds straight into the vault
 ```

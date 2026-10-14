@@ -12,6 +12,7 @@ Notes, actions et mémoire, directement dans ton coffre. **Sans bot de réunion.
 ![Obsidian](https://img.shields.io/badge/Obsidian-%E2%89%A5%201.11.4-7c3aed)
 ![Visio](https://img.shields.io/badge/visio-macOS%2014.4%2B-lightgrey)
 ![Mobile](https://img.shields.io/badge/mobile-pr%C3%A9sentiel%20%26%20journal-success)
+[![Plugin de la communauté Obsidian](https://img.shields.io/badge/Obsidian-community%20plugin-7c3aed)](https://community.obsidian.md/plugins/muesli)
 
 [English](README.md) · **Français**
 
@@ -72,9 +73,9 @@ Touche l'icône micro pour ouvrir l'**enregistreur** : choisis **Journal** ou **
 
 ## Installation
 
-> Muesli n'est pas encore dans le répertoire des plugins de la communauté.
+**Depuis Obsidian (recommandé)** : *Réglages → Plugins communautaires → Parcourir*, cherche **Muesli**, puis *Installer* et *Activer*. Ou ouvre [Muesli dans le répertoire de la communauté](https://community.obsidian.md/plugins/muesli) et choisis *Add to Obsidian*.
 
-**Avec BRAT (recommandé)** : installe [BRAT](https://github.com/TfTHacker/obsidian42-brat), puis *BRAT: Add a beta plugin* → `Azilone/obsidian-muesli`. Active **Muesli** dans *Réglages → Plugins communautaires*.
+**Avec BRAT** (dernières versions) : installe [BRAT](https://github.com/TfTHacker/obsidian42-brat), puis *BRAT: Add a beta plugin* → `Azilone/obsidian-muesli`.
 
 **À la main** : télécharge `main.js`, `manifest.json` et `styles.css` depuis la [dernière release](https://github.com/Azilone/obsidian-muesli/releases/latest) dans `<ton coffre>/.obsidian/plugins/muesli/`, puis active **Muesli**.
 
