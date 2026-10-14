@@ -92,9 +92,11 @@ Obsidian 1.11.4 or later, and an [OpenRouter API key](https://openrouter.ai/keys
 
 ## Setup
 
+On first launch, a **setup screen** walks you through it (also available from *Settings → Muesli → Setup* or the *Set up Muesli* command):
+
 1. **Settings → Muesli → OpenRouter API key**: paste your key. It is checked right away, the remaining credit is shown, and it is saved in Obsidian's secret storage (never in your vault or in `data.json`).
 2. **Your name**: used for your microphone in transcripts.
-3. **First call on a Mac**: Muesli downloads its small audio helper (see [disclosures](#privacy-and-disclosures)), then macOS asks to allow **Muesli** to record the computer's audio. Accept, or the other participants won't be captured. You can change it later in *System Settings → Privacy & Security → Screen & System Audio Recording*. macOS may ask again after an update.
+3. **Sound test (Mac)**: Muesli downloads its small audio helper (see [disclosures](#privacy-and-disclosures)), then macOS asks to allow **Muesli** to record the computer's audio. Accept, or the other participants won't be captured. Play some audio during the test: both meters should move. You can change the permission later in *System Settings → Privacy & Security → Screen & System Audio Recording*. macOS may ask again after an update.
 4. Optional: **Default meeting type** (call or in person), **default summary template**, **summary language**, and the folders.
 
 That's it: ribbon icon → **Meeting** → write → stop.

@@ -314,3 +314,66 @@
 .mn-start-icon {
 	font-size: 2em;
 }
+
+/* ─── First-run setup ─── */
+.mn-onboarding .mn-ob-step {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-top: var(--size-4-4);
+	font-weight: var(--font-semibold);
+	font-size: var(--font-ui-medium);
+}
+.mn-onboarding .mn-ob-num {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	border-radius: 50%;
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-size: var(--font-ui-smaller);
+}
+.mn-onboarding .mn-ob-step + .setting-item-description {
+	margin: 4px 0 0 32px;
+}
+.mn-ob-test {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin: var(--size-4-2) 0 0 32px;
+}
+.mn-ob-meter {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+.mn-ob-label {
+	width: 150px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+.mn-ob-bar {
+	flex: 1;
+	height: 8px;
+	border-radius: 4px;
+	background: var(--background-modifier-border);
+	overflow: hidden;
+}
+.mn-ob-fill {
+	height: 100%;
+	background: var(--color-green);
+	transform-origin: left;
+	transform: scaleX(var(--level, 0));
+	transition: transform 120ms linear;
+}
+.mn-ob-mark {
+	width: 16px;
+	text-align: center;
+}
+.mn-ob-result {
+	min-height: 1.4em;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}

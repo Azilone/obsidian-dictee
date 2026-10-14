@@ -92,9 +92,11 @@ Obsidian 1.11.4 ou plus récent, et une [clé API OpenRouter](https://openrouter
 
 ## Configuration
 
+Au premier lancement, un **écran de configuration** te guide (accessible aussi depuis *Réglages → Muesli → Configuration* ou la commande *Configurer Muesli*) :
+
 1. **Réglages → Muesli → Clé API OpenRouter** : colle ta clé. Elle est vérifiée tout de suite, le crédit restant s'affiche, et elle est stockée dans le trousseau d'Obsidian (jamais dans ton coffre ni dans `data.json`).
 2. **Ton nom** : utilisé pour ton micro dans les transcripts.
-3. **Premier appel sur Mac** : Muesli télécharge son petit helper audio (voir [transparence](#confidentialité-et-transparence)), puis macOS demande d'autoriser **Muesli** à enregistrer le son de l'ordinateur. Accepte, sinon les autres participants ne seront pas captés. Modifiable ensuite dans *Réglages Système → Confidentialité et sécurité → Enregistrement de l'écran et de l'audio système*. macOS peut redemander après une mise à jour.
+3. **Test du son (Mac)** : Muesli télécharge son petit helper audio (voir [transparence](#confidentialité-et-transparence)), puis macOS demande d'autoriser **Muesli** à enregistrer le son de l'ordinateur. Accepte, sinon les autres participants ne seront pas captés. Lance un son pendant le test : les deux jauges doivent bouger. Autorisation modifiable ensuite dans *Réglages Système → Confidentialité et sécurité → Enregistrement de l'écran et de l'audio système*. macOS peut redemander après une mise à jour.
 4. Optionnel : **type de réunion par défaut** (visio ou présentiel), **modèle de résumé par défaut**, **langue du résumé**, et les dossiers.
 
 C'est tout : icône → **Réunion** → écris → stop.

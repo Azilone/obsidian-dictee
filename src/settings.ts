@@ -54,6 +54,8 @@ export interface MeetingSettings {
 	voiceMemosSince: string;
 	/** File names already handled. */
 	voiceMemosSeen: string[];
+	/** The first-run setup was shown (it opens by itself only once, and only without a key). */
+	onboarded: boolean;
 }
 
 export const DEFAULT_SETTINGS: MeetingSettings = {
@@ -86,6 +88,7 @@ export const DEFAULT_SETTINGS: MeetingSettings = {
 	voiceMemosDir: VOICE_MEMOS_DIR,
 	voiceMemosSince: '',
 	voiceMemosSeen: [],
+	onboarded: false,
 };
 
 export class MeetingSettingTab extends PluginSettingTab {
@@ -101,6 +104,11 @@ export class MeetingSettingTab extends PluginSettingTab {
 		const s = this.plugin.settings;
 		const save = () => this.plugin.saveSettings();
 		containerEl.empty();
+
+		new Setting(containerEl)
+			.setName(L.ob.settingName)
+			.setDesc(L.ob.settingDesc)
+			.addButton((b) => b.setButtonText(L.ob.open).onClick(() => this.plugin.openOnboarding()));
 
 		const key = new Setting(containerEl)
 			.setName(L.s.apiKey)

@@ -23,6 +23,7 @@ import { DEFAULT_SETTINGS, MeetingSettingTab, type MeetingSettings } from './set
 import { ImportMeetingModal, SpeakerNamesModal, StartChoiceModal, type ImportOptions, type StartOptions } from './ui/modals';
 import { RecorderOverlay, type OverlayAction } from './ui/overlay';
 import { RECORDER_VIEW, RecorderView } from './ui/recorder-view';
+import { OnboardingModal } from './ui/onboarding';
 import { NoAccessError, listNewMemos, memoKind } from './recorder/voice-memos';
 import { ensureHelper } from './recorder/helper';
 import { formatUsd, t } from './i18n';
@@ -127,6 +128,12 @@ export default class MuesliPlugin extends Plugin {
 			},
 		});
 		this.addCommand({
+			id: 'setup',
+			name: t.ob.command,
+			icon: 'sparkles',
+			callback: () => this.openOnboarding(),
+		});
+		this.addCommand({
 			id: 'import',
 			name: t.importAudio,
 			icon: 'file-audio',
@@ -181,6 +188,8 @@ export default class MuesliPlugin extends Plugin {
 		);
 		this.register(() => window.clearInterval(this.tick));
 		this.app.workspace.onLayoutReady(() => {
+			// First run: walk through the key, the name and the sound test.
+			if (!this.apiKey() && !this.settings.onboarded) this.openOnboarding();
 			void this.recoverInterrupted();
 			if (this.settings.importFolder) void this.ensureFolder(this.settings.importFolder).catch(() => {});
 			// A recording dropped in the import folder (AirDrop, iCloud, Dictaphone…) is offered right
@@ -299,7 +308,7 @@ export default class MuesliPlugin extends Plugin {
 	}
 
 	/** Fetch the macOS helper if needed; failures are reported and the caller degrades gracefully. */
-	private async installHelper() {
+	async installHelper() {
 		try {
 			await ensureHelper(this.helperPath, this.manifest.version);
 		} catch (e) {
@@ -338,12 +347,10 @@ export default class MuesliPlugin extends Plugin {
 		this.app.secretStorage.setSecret(SECRET_ID, value);
 	}
 
-	openSettings() {
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const setting = (this.app as any).setting;
-		setting?.open();
-		setting?.openTabById(this.manifest.id);
+	openOnboarding() {
+		new OnboardingModal(this.app, this).open();
 	}
+
 
 	private async ensureFolder(path: string) {
 		const parts = normalizePath(path).split('/');
@@ -372,10 +379,10 @@ export default class MuesliPlugin extends Plugin {
 		n.messageEl.empty();
 		n.messageEl.createDiv({ text: t.addKey });
 		n.messageEl
-			.createEl('button', { text: t.openSettings, cls: 'mod-cta mn-notice-btn' })
+			.createEl('button', { text: t.ob.open, cls: 'mod-cta mn-notice-btn' })
 			.addEventListener('click', () => {
 				n.hide();
-				this.openSettings();
+				this.openOnboarding();
 			});
 		return false;
 	}
