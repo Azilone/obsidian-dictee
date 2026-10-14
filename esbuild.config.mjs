@@ -21,7 +21,10 @@ const helperB64 = helper ? helper.toString('base64') : '';
 const copyAssets = {
 	name: 'copy-assets',
 	setup(build) {
-		build.onEnd(() => {
+		build.onEnd((result) => {
+			if (!result.errors.length && /\bimport\(\s*["']/.test(readFileSync(join(outdir, 'main.js'), 'utf8'))) {
+				throw new Error('main.js still contains a dynamic import(), which Obsidian cannot resolve');
+			}
 			if (!vault) return;
 			for (const f of ['manifest.json', 'styles.css']) copyFileSync(f, join(outdir, f));
 			if (existsSync(HELPER)) copyFileSync(HELPER, join(outdir, 'meeting-tap'));
@@ -40,6 +43,8 @@ const ctx = await esbuild.context({
 	treeShaking: true,
 	minify: prod,
 	outfile: join(outdir, 'main.js'),
+	// Obsidian loads main.js as CommonJS: dynamic import('fs') must become require('fs').
+	supported: { 'dynamic-import': false },
 	define: { HELPER_SHA256: JSON.stringify(helperSha), HELPER_BASE64: JSON.stringify(helperB64) },
 	plugins: [copyAssets],
 });

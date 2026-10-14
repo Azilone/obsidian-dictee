@@ -1,6 +1,6 @@
 {
   "name": "obsidian-muesli",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "The AI notepad for back-to-back meetings, in Obsidian. Notes, actions and memory in your vault, without a meeting bot.",
   "main": "main.js",
   "scripts": {

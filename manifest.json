@@ -1,7 +1,7 @@
 {
   "id": "muesli",
   "name": "Muesli",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "minAppVersion": "1.13.0",
   "description": "Record meetings without a bot and get a diarized transcript, an AI summary and action items in your vault. Also turns spoken journal entries into daily-note bullets.",
   "author": "Kevin",
