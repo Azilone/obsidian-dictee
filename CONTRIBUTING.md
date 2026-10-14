@@ -15,7 +15,7 @@ Requirements: [Bun](https://bun.sh), and on macOS the Xcode command line tools (
 git clone https://github.com/Azilone/obsidian-muesli.git
 cd obsidian-muesli
 bun install
-./native/build.sh                         # macOS only: builds native/bin/meeting-tap
+./native/build.sh                         # macOS only, when changing native/macos: rebuilds native/meeting-tap
 VAULT="/path/to/test-vault" bun run dev   # watch build into the vault's plugin folder
 ```
 
@@ -35,4 +35,6 @@ Small, focused PRs are reviewed fastest.
 
 1. Bump `version` in `manifest.json` and `package.json`, and add it to `versions.json`.
 2. Commit, then push a tag with exactly that version (no `v` prefix): `git tag 0.2.0 && git push origin 0.2.0`.
-3. The release workflow builds the helper and the plugin on macOS (the helper is embedded in `main.js`) and publishes `main.js`, `manifest.json`, `styles.css`. The tag must match the manifest version.
+3. The release workflow builds the plugin, embedding the committed `native/meeting-tap`, and publishes `main.js`, `manifest.json`, `styles.css`. The tag must match the manifest version.
+
+The helper itself is rebuilt by the **Helper** workflow (on changes to `native/macos`, or run it by hand), which attests and commits `native/meeting-tap`. Don't commit a locally built helper: let the workflow do it.

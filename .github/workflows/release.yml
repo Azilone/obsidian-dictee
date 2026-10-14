@@ -12,8 +12,7 @@ permissions:
 
 jobs:
   release:
-    # macOS: the system audio helper is built with swiftc, and its SHA-256 is baked into main.js.
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -27,11 +26,12 @@ jobs:
             exit 1
           fi
 
+      # main.js embeds the committed native/meeting-tap (built and attested by the Helper workflow),
+      # so this build is reproducible from the repository.
       - name: Build
         run: |
           bun install --frozen-lockfile
-          bun test tests
-          ./native/build.sh
+          bun run check
           bun run build
 
       - name: Attest build provenance
@@ -41,7 +41,6 @@ jobs:
             main.js
             manifest.json
             styles.css
-            native/bin/meeting-tap
 
       - name: Create release
         env:

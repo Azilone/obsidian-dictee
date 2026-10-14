@@ -10,11 +10,11 @@ const vault = process.env.VAULT;
 const outdir = vault ? join(vault, '.obsidian', 'plugins', 'muesli') : '.';
 if (vault) mkdirSync(outdir, { recursive: true });
 
-// Production builds embed the macOS helper (see src/recorder/helper.ts), written next to the plugin
-// on first use. Dev builds embed nothing and use the helper copied into the vault below.
-const HELPER = 'native/bin/meeting-tap';
-if (prod && process.env.CI && !existsSync(HELPER)) throw new Error(`${HELPER} is missing: run ./native/build.sh first`);
-const helper = prod && existsSync(HELPER) ? readFileSync(HELPER) : null;
+// Production builds embed the committed macOS helper (see src/recorder/helper.ts), written next to
+// the plugin on first use, so main.js can be rebuilt byte for byte from the repository.
+// Dev builds embed nothing and use the helper copied into the vault below.
+const HELPER = 'native/meeting-tap';
+const helper = prod ? readFileSync(HELPER) : null;
 const helperSha = helper ? createHash('sha256').update(helper).digest('hex') : '';
 const helperB64 = helper ? helper.toString('base64') : '';
 

@@ -1,0 +1,42 @@
+name: Helper
+
+# Builds the macOS audio helper from native/macos on a GitHub runner, attests it, and commits it
+# as native/meeting-tap when it changed. Release builds embed that committed binary.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "native/macos/**"
+      - "native/build.sh"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: ./native/build.sh
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: native/meeting-tap
+
+      - name: Commit the helper
+        run: |
+          if git diff --quiet -- native/meeting-tap; then
+            echo "Helper unchanged."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add native/meeting-tap
+          git commit -m "Helper: rebuild native/meeting-tap from ${GITHUB_SHA::7}"
+          git push

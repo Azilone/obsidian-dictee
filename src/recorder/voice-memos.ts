@@ -7,7 +7,7 @@
  * Voice Memos database through `/usr/bin/sqlite3` when possible, else from the file itself.
  */
 
-import { nodeChildProcess, nodeFs, nodeOs } from '../node';
+import { nodeChildProcess, nodeFs, nodeOs, type StatsLike } from '../node';
 
 export const VOICE_MEMOS_DIR = '~/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings';
 
@@ -83,7 +83,7 @@ export async function listNewMemos(dir: string, since: Date, seen: Set<string>):
 	const out: VoiceMemo[] = [];
 	for (const name of fresh) {
 		const path = `${root}/${name}`;
-		let stat: ReturnType<typeof fs.statSync>;
+		let stat: StatsLike;
 		try {
 			stat = fs.statSync(path);
 		} catch {

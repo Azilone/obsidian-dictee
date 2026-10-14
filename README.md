@@ -9,7 +9,7 @@
 Notes, actions and memory, directly in your vault. **Without a meeting bot.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Obsidian](https://img.shields.io/badge/Obsidian-%E2%89%A5%201.11.4-7c3aed)
+![Obsidian](https://img.shields.io/badge/Obsidian-%E2%89%A5%201.13-7c3aed)
 ![Calls](https://img.shields.io/badge/calls-macOS%2014.4%2B-lightgrey)
 ![Mobile](https://img.shields.io/badge/mobile-in%20person%20%26%20journal-success)
 [![Obsidian community plugin](https://img.shields.io/badge/Obsidian-community%20plugin-7c3aed)](https://community.obsidian.md/plugins/muesli)
@@ -89,7 +89,7 @@ Tap the mic icon to open the **recorder**: pick **Journal** or **Meeting** (in p
 | Windows, Linux | — (mic only for now) | ✅ |
 | iOS, Android | — | ✅ (recorder screen) |
 
-Obsidian 1.11.4 or later, and an [OpenRouter API key](https://openrouter.ai/keys) with a few dollars of credit.
+Obsidian 1.13 or later, and an [OpenRouter API key](https://openrouter.ai/keys) with a few dollars of credit.
 
 ## Setup
 
@@ -147,7 +147,7 @@ You pay OpenRouter directly. As a rough guide: transcription is about **$0.10 pe
 
 - **Network**: audio and text are sent **only to [OpenRouter](https://openrouter.ai)** (and the model providers it routes to), with your own key. No telemetry, no analytics, no server of ours.
 - **Paid service**: OpenRouter is pay-per-use; you need an account and credit.
-- **Native helper (macOS)**: system audio capture and fast audio decoding use `meeting-tap`, a small open-source Swift program ([`native/macos/main.swift`](native/macos/main.swift)). Obsidian only installs `main.js`, `manifest.json` and `styles.css`, so the release build embeds the compiled helper in `main.js` (with its SHA-256) and Muesli writes it to its plugin folder on first use. Nothing is downloaded. Release files are built by GitHub Actions from this repository, with [build provenance attestations](https://github.com/Azilone/obsidian-muesli/attestations), so `main.js` can be traced back to this source. You can also build it yourself with `./native/build.sh`.
+- **Native helper (macOS)**: system audio capture and fast audio decoding use `meeting-tap`, a small open-source Swift program ([`native/macos/main.swift`](native/macos/main.swift)). Obsidian only installs `main.js`, `manifest.json` and `styles.css`, so the release build embeds the compiled helper in `main.js` (with its SHA-256) and Muesli writes it to its plugin folder on first use. Nothing is downloaded. The helper is compiled from that source by a GitHub Actions workflow and committed as `native/meeting-tap`, and `main.js` is built from the repository by another; both carry [build provenance attestations](https://github.com/Azilone/obsidian-muesli/attestations), so `main.js` can be rebuilt and checked byte for byte. You can also build the helper yourself with `./native/build.sh`.
 - **Files outside the vault**: only when you import a file from disk, or with the optional Voice Memos inbox (reads `~/Library/Group Containers/group.com.apple.VoiceMemos.shared`, requires Full Disk Access).
 - Raw audio chunks and API responses stay in a hidden `.raw/` folder inside each meeting folder. Delete it once you're happy with the result. Syncing your vault with git? Consider adding `**/.raw/` and `*.mp3` to `.gitignore`.
 - **Always tell participants you are recording**, and follow the consent laws where you live.
@@ -157,14 +157,14 @@ You pay OpenRouter directly. As a rough guide: transcription is about **$0.10 pe
 ```bash
 bun install
 bun run check                        # type-check, Obsidian lint rules, tests
-./native/build.sh                    # universal (arm64 + x86_64) helper, ad-hoc signed
+./native/build.sh                    # rebuild native/meeting-tap (universal, ad-hoc signed)
 VAULT="/path/to/vault" bun run dev   # watch mode, builds straight into the vault
 ```
 
 Test the helper on its own:
 
 ```bash
-./native/bin/meeting-tap --seconds 5 > out.pcm
+./native/meeting-tap --seconds 5 > out.pcm
 ffplay -f s16le -ar 16000 -ac 1 out.pcm
 ```
 

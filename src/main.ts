@@ -869,7 +869,7 @@ export default class MuesliPlugin extends Plugin {
 
 	private async readDiskFile(abs: string): Promise<ArrayBuffer> {
 		const buf = await (await nodeFs()).promises.readFile(abs);
-		return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+		return buf.slice().buffer;
 	}
 
 	async reprocess(folder: string) {

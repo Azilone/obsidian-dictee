@@ -236,9 +236,11 @@ const en = {
 		voiceFolder: 'Voice notes folder',
 		voiceFolderDesc: 'Audio and transcript of each voice note. The summary goes into the daily note.',
 		daily: 'Daily note',
-		dailyDesc: 'Empty: settings of the core “Daily notes” plugin. Otherwise a Moment path, e.g. Journal/YYYY/YYYY-MM-DD',
+		dailyDesc: 'Empty: settings of the core “Daily notes” plugin. Otherwise a Moment path, e.g. [Journal]/YYYY/YYYY-MM-DD',
 		templatesFolder: 'Summary templates folder',
 		templatesFolderDesc: 'Each Markdown note is a template: its content describes the summary you want.',
+		required: 'Required.',
+		noMd: 'Without the .md extension.',
 	},
 	languages: {
 		'': 'Auto-detect',
@@ -480,6 +482,8 @@ const fr: Strings = {
 		dailyDesc: 'Vide : réglages du plugin « Notes quotidiennes ». Sinon un chemin au format Moment, ex. Journal/YYYY/YYYY-MM-DD',
 		templatesFolder: 'Dossier des modèles de résumé',
 		templatesFolderDesc: 'Chaque note Markdown est un modèle : son contenu décrit le résumé voulu.',
+		required: 'Obligatoire.',
+		noMd: 'Sans l’extension .md.',
 	},
 	languages: {
 		'': 'Détection automatique',

@@ -9,7 +9,7 @@
 Notes, actions et mémoire, directement dans ton coffre. **Sans bot de réunion.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Obsidian](https://img.shields.io/badge/Obsidian-%E2%89%A5%201.11.4-7c3aed)
+![Obsidian](https://img.shields.io/badge/Obsidian-%E2%89%A5%201.13-7c3aed)
 ![Visio](https://img.shields.io/badge/visio-macOS%2014.4%2B-lightgrey)
 ![Mobile](https://img.shields.io/badge/mobile-pr%C3%A9sentiel%20%26%20journal-success)
 [![Plugin de la communauté Obsidian](https://img.shields.io/badge/Obsidian-community%20plugin-7c3aed)](https://community.obsidian.md/plugins/muesli)
@@ -89,7 +89,7 @@ Touche l'icône micro pour ouvrir l'**enregistreur** : choisis **Journal** ou **
 | Windows, Linux | — (micro seul pour l'instant) | ✅ |
 | iOS, Android | — | ✅ (écran enregistreur) |
 
-Obsidian 1.11.4 ou plus récent, et une [clé API OpenRouter](https://openrouter.ai/keys) avec quelques dollars de crédit.
+Obsidian 1.13 ou plus récent, et une [clé API OpenRouter](https://openrouter.ai/keys) avec quelques dollars de crédit.
 
 ## Configuration
 
@@ -147,7 +147,7 @@ Tu paies OpenRouter directement. En ordre de grandeur : environ **0,10 $ par heu
 
 - **Réseau** : l'audio et le texte partent **uniquement vers [OpenRouter](https://openrouter.ai)** (et les fournisseurs de modèles vers lesquels il route), avec ta clé. Aucune télémétrie, aucune analytics, aucun serveur à nous.
 - **Service payant** : OpenRouter est facturé à l'usage ; il faut un compte et du crédit.
-- **Helper natif (macOS)** : la capture du son système et le décodage rapide passent par `meeting-tap`, un petit programme Swift open source ([`native/macos/main.swift`](native/macos/main.swift)). Obsidian n'installe que `main.js`, `manifest.json` et `styles.css` : le build de release intègre donc le helper compilé dans `main.js` (avec son SHA-256), et Muesli l'écrit dans son dossier de plugin au premier usage. Rien n'est téléchargé. Les fichiers de release sont construits par GitHub Actions depuis ce dépôt, avec [attestations de provenance](https://github.com/Azilone/obsidian-muesli/attestations) : `main.js` peut ainsi être relié à ce code source. Tu peux aussi le compiler toi-même avec `./native/build.sh`.
+- **Helper natif (macOS)** : la capture du son système et le décodage rapide passent par `meeting-tap`, un petit programme Swift open source ([`native/macos/main.swift`](native/macos/main.swift)). Obsidian n'installe que `main.js`, `manifest.json` et `styles.css` : le build de release intègre donc le helper compilé dans `main.js` (avec son SHA-256), et Muesli l'écrit dans son dossier de plugin au premier usage. Rien n'est téléchargé. Le helper est compilé depuis ce code par un workflow GitHub Actions et versionné sous `native/meeting-tap`, et `main.js` est construit depuis le dépôt par un autre ; les deux ont des [attestations de provenance](https://github.com/Azilone/obsidian-muesli/attestations), donc `main.js` peut être reconstruit et vérifié à l'octet près. Tu peux aussi compiler le helper toi-même avec `./native/build.sh`.
 - **Fichiers hors du coffre** : seulement quand tu importes un fichier du disque, ou avec la boîte de réception Dictaphone optionnelle (lit `~/Library/Group Containers/group.com.apple.VoiceMemos.shared`, accès complet au disque requis).
 - Les segments audio bruts et les réponses API restent dans un dossier caché `.raw/` de chaque réunion. Supprime-le quand le résultat te convient. Tu synchronises ton coffre avec git ? Pense à ajouter `**/.raw/` et `*.mp3` au `.gitignore`.
 - **Préviens toujours les participants que tu enregistres**, et respecte les lois sur le consentement là où tu vis.
@@ -157,7 +157,7 @@ Tu paies OpenRouter directement. En ordre de grandeur : environ **0,10 $ par heu
 ```bash
 bun install
 bun run check                        # type-check + tests (VAD, découpage, fusion, journal)
-./native/build.sh                    # helper universel (arm64 + x86_64), signé ad hoc
+./native/build.sh                    # recompile native/meeting-tap (universel, signé ad hoc)
 VAULT="/chemin/du/coffre" bun run dev   # mode watch, build directement dans le coffre
 ```
 
