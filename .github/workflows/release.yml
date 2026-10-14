@@ -47,6 +47,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp native/bin/meeting-tap meeting-tap
-          gh release create "$GITHUB_REF_NAME" main.js manifest.json styles.css meeting-tap \
+          gh release create "$GITHUB_REF_NAME" main.js manifest.json styles.css \
             --title "$GITHUB_REF_NAME" --generate-notes --latest

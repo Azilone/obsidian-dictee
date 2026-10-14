@@ -53,8 +53,9 @@
 }
 
 /* ─── Ribbon & mini player ─── */
-.mn-ribbon-recording {
-	color: var(--color-red) !important;
+.side-dock-ribbon .side-dock-ribbon-action.mn-ribbon-recording,
+.side-dock-ribbon .side-dock-ribbon-action.mn-ribbon-recording:hover {
+	color: var(--color-red);
 }
 .mn-player {
 	position: absolute;
