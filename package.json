@@ -1,12 +1,13 @@
 {
   "name": "obsidian-muesli",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "The AI notepad for back-to-back meetings, in Obsidian. Notes, actions and memory in your vault, without a meeting bot.",
   "main": "main.js",
   "scripts": {
-    "dev": "bun esbuild.config.mjs",
-    "build": "tsc -noEmit -skipLibCheck && bun esbuild.config.mjs production",
-    "check": "tsc -noEmit -skipLibCheck && bun test tests",
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "lint": "eslint src",
+    "check": "tsc -noEmit -skipLibCheck && eslint src && bun test tests",
     "test": "bun test tests"
   },
   "repository": {
@@ -17,12 +18,15 @@
   "bugs": "https://github.com/Azilone/obsidian-muesli/issues",
   "license": "MIT",
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^20.11.0",
-    "builtin-modules": "^3.3.0",
     "esbuild": "^0.21.5",
+    "eslint": "9",
+    "eslint-plugin-obsidianmd": "^0.4.2",
     "obsidian": "latest",
     "tslib": "^2.6.2",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "typescript-eslint": "^8.71.2"
   },
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7"

@@ -27,6 +27,22 @@ function toBase64(bytes: Uint8Array): string {
 	return btoa(bin);
 }
 
+interface KeyData {
+	limit?: number | null;
+	limit_remaining?: number | null;
+	limit_reset?: string | null;
+}
+
+interface CreditsData {
+	total_credits?: number;
+	total_usage?: number;
+}
+
+interface ChatResponse {
+	usage?: { cost?: number };
+	choices?: { message?: { content?: unknown } }[];
+}
+
 export interface KeyInfo {
 	ok: boolean;
 	message: string;
@@ -44,15 +60,15 @@ export async function checkKey(key: string): Promise<KeyInfo> {
 	}
 	if (res.status === 401 || res.status === 403) return { ok: false, message: t.keyRejected };
 	if (res.status >= 400) return { ok: false, message: t.keyStatus(res.status) };
-	const d = res.json?.data ?? {};
+	const d = ((res.json as { data?: KeyData } | null)?.data ?? {});
 	if (typeof d.limit_remaining === 'number') {
 		const period = d.limit_reset === 'monthly' ? t.perMonth : d.limit_reset === 'weekly' ? t.perWeek : d.limit_reset === 'daily' ? t.perDay : '';
-		return { ok: true, message: t.keyLimit(formatUsd(d.limit_remaining), formatUsd(d.limit), period) };
+		return { ok: true, message: t.keyLimit(formatUsd(d.limit_remaining), formatUsd(d.limit ?? 0), period) };
 	}
 	try {
-		const c = (await get('/credits')).json?.data;
+		const c = ((await get('/credits')).json as { data?: CreditsData } | null)?.data;
 		if (c && typeof c.total_credits === 'number') {
-			return { ok: true, message: t.keyCredit(formatUsd(c.total_credits - c.total_usage)) };
+			return { ok: true, message: t.keyCredit(formatUsd(c.total_credits - (c.total_usage ?? 0))) };
 		}
 	} catch {
 		/* credits are optional */
@@ -66,7 +82,7 @@ export class OpenRouter {
 
 	constructor(private getKey: () => string | null) {}
 
-	private async post(path: string, body: unknown): Promise<any> {
+	private async post(path: string, body: unknown): Promise<unknown> {
 		const key = this.getKey();
 		if (!key) throw new OpenRouterError(t.keyMissing, 401);
 		let res;
@@ -89,13 +105,13 @@ export class OpenRouter {
 		if (res.status >= 400) {
 			let msg = res.text;
 			try {
-				msg = res.json?.error?.message ?? msg;
+				msg = (res.json as { error?: { message?: string } } | null)?.error?.message ?? msg;
 			} catch {
 				/* not JSON */
 			}
 			throw new OpenRouterError(`OpenRouter ${res.status}: ${msg}`.slice(0, 400), res.status);
 		}
-		return res.json;
+		return res.json as unknown;
 	}
 
 	async transcribe(mp3: Uint8Array, opts: { model: string; language?: string; diarize: boolean }): Promise<SttResult> {
@@ -107,14 +123,14 @@ export class OpenRouter {
 		};
 		if (opts.language) body.language = opts.language;
 		if (opts.diarize) body.provider = { options: { azure: { diarization: { enabled: true } } } };
-		return withRetry(() => this.post('/audio/transcriptions', body));
+		return (await withRetry(() => this.post('/audio/transcriptions', body))) as SttResult;
 	}
 
 	async chat(model: string, messages: ChatMessage[], opts: { json?: boolean; maxTokens?: number } = {}): Promise<string> {
 		const body: Record<string, unknown> = { model, messages, temperature: 0.2, usage: { include: true } };
 		if (opts.maxTokens) body.max_tokens = opts.maxTokens;
 		if (opts.json) body.response_format = { type: 'json_object' };
-		const res = await withRetry(() => this.post('/chat/completions', body));
+		const res = (await withRetry(() => this.post('/chat/completions', body))) as ChatResponse | null;
 		this.spent += Number(res?.usage?.cost) || 0;
 		const text = res?.choices?.[0]?.message?.content;
 		if (typeof text !== 'string') throw new OpenRouterError(t.emptyReply, 502);

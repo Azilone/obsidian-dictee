@@ -17,8 +17,8 @@ export function normalizePeople(raw: unknown, utts: Utterance[]): Person[] {
 	const people: Person[] = [];
 	const list = (raw as { people?: unknown })?.people;
 	if (Array.isArray(list)) {
-		for (const p of list) {
-			const ls = Array.isArray(p?.labels) ? (p.labels as unknown[]).map(String) : [];
+		for (const p of list as { name?: unknown; labels?: unknown; evidence?: unknown }[]) {
+			const ls = Array.isArray(p?.labels) ? (p.labels as unknown[]).filter((l): l is string => typeof l === 'string') : [];
 			const mine = ls.filter((l) => known.has(l) && !seen.has(l));
 			if (!mine.length) continue;
 			mine.forEach((l) => seen.add(l));

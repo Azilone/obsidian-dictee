@@ -1,4 +1,5 @@
 import {
+	FileSystemAdapter,
 	MarkdownView,
 	Menu,
 	Notice,
@@ -27,6 +28,8 @@ import { OnboardingModal } from './ui/onboarding';
 import { NoAccessError, listNewMemos, memoKind } from './recorder/voice-memos';
 import { ensureHelper } from './recorder/helper';
 import { formatUsd, t } from './i18n';
+import { electronRemote, openExternal } from './electron';
+import { nodeFs, nodePath } from './node';
 
 /** Audio formats Obsidian plays in a note; others are converted to MP3 on import. */
 const PLAYABLE = ['m4a', 'mp3', 'wav', 'ogg', 'oga', 'opus', 'webm', 'flac', 'mp4', 'aac'];
@@ -77,7 +80,7 @@ export default class MuesliPlugin extends Plugin {
 			icon: 'mic',
 			checkCallback: (checking) => {
 				if (this.session) return false;
-				if (!checking) this.startMeeting();
+				if (!checking) void this.startMeeting();
 				return true;
 			},
 		});
@@ -222,9 +225,11 @@ export default class MuesliPlugin extends Plugin {
 		});
 		n.messageEl
 			.createEl('button', { text: t.process, cls: 'mod-cta mn-notice-btn' })
-			.addEventListener('click', async () => {
+			.addEventListener('click', () => {
 				n.hide();
-				for (const f of files) await this.importAudio(f);
+				void (async () => {
+					for (const f of files) await this.importAudio(f);
+				})();
 			});
 	}
 
@@ -242,7 +247,7 @@ export default class MuesliPlugin extends Plugin {
 		const st = this.settings;
 		let memos;
 		try {
-			memos = listNewMemos(st.voiceMemosDir, new Date(st.voiceMemosSince || Date.now()), new Set(st.voiceMemosSeen));
+			memos = await listNewMemos(st.voiceMemosDir, new Date(st.voiceMemosSince || Date.now()), new Set(st.voiceMemosSeen));
 		} catch (e) {
 			if (!(e instanceof NoAccessError) || (this.memoAccessWarned && !explicit)) return;
 			this.memoAccessWarned = true;
@@ -253,8 +258,7 @@ export default class MuesliPlugin extends Plugin {
 			});
 			n.messageEl.createEl('button', { text: t.openSystemSettings, cls: 'mod-cta mn-notice-btn' }).addEventListener('click', () => {
 				n.hide();
-				// eslint-disable-next-line @typescript-eslint/no-var-requires
-				require('electron').shell?.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles');
+				openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles');
 			});
 			return;
 		}
@@ -294,7 +298,7 @@ export default class MuesliPlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) as Partial<MeetingSettings> | null);
 	}
 
 	async saveSettings() {
@@ -726,29 +730,22 @@ export default class MuesliPlugin extends Plugin {
 	// ─── Import ───
 
 	private vaultBasePath(): string {
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		return ((this.app.vault.adapter as any).getBasePath?.() as string | undefined) ?? '';
+		const adapter = this.app.vault.adapter;
+		return adapter instanceof FileSystemAdapter ? adapter.getBasePath() : '';
 	}
 
 	/** Native file dialog; falls back to a hint when Electron's remote module is unavailable. */
 	private async importFromDialog() {
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		let remote: any = null;
-		try {
-			// eslint-disable-next-line @typescript-eslint/no-var-requires
-			remote = require('electron')?.remote;
-		} catch {
-			/* no remote */
-		}
-		if (!Platform.isDesktopApp || !remote?.dialog) {
+		const dialog = Platform.isDesktopApp ? electronRemote()?.dialog : undefined;
+		if (!dialog) {
 			return new Notice(t.dropFileHint(this.settings.importFolder), 10000);
 		}
-		const res = await remote.dialog.showOpenDialog({
+		const res = await dialog.showOpenDialog({
 			title: t.importDialogTitle,
 			properties: ['openFile'],
 			filters: [{ name: 'Audio', extensions: AUDIO_EXTENSIONS }],
 		});
-		const abs: string | undefined = res?.filePaths?.[0];
+		const abs = res.filePaths[0];
 		if (!abs) return;
 		const base = this.vaultBasePath();
 		if (abs.startsWith(base + '/')) {
@@ -770,13 +767,12 @@ export default class MuesliPlugin extends Plugin {
 			({ name, basename: base, extension: ext } = source);
 			mtime = new Date(source.stat.mtime);
 		} else {
-			const fs = require('fs') as typeof import('fs');
-			const path = require('path') as typeof import('path');
+			const path = await nodePath();
 			name = path.basename(source);
 			ext = path.extname(source).slice(1);
 			base = path.basename(source, path.extname(source));
 			try {
-				mtime = fs.statSync(source).mtime;
+				mtime = (await (await nodeFs()).promises.stat(source)).mtime;
 			} catch {
 				return new Notice(t.fileNotFound(source));
 			}
@@ -839,9 +835,10 @@ export default class MuesliPlugin extends Plugin {
 			const inbox = this.settings.importFolder && file?.parent?.path === normalizePath(this.settings.importFolder);
 			if (file && inbox) {
 				await this.app.fileManager.renameFile(file, dest);
-				file = this.app.vault.getAbstractFileByPath(dest) as TFile;
+				const moved = this.app.vault.getAbstractFileByPath(dest);
+				file = moved instanceof TFile ? moved : null;
 			} else if (this.settings.keepAudio && PLAYABLE.includes(ext)) {
-				const bytes = file ? await this.app.vault.readBinary(file) : this.readDiskFile(source as string);
+				const bytes = file ? await this.app.vault.readBinary(file) : await this.readDiskFile(source as string);
 				await this.app.vault.adapter.writeBinary(dest, bytes);
 			}
 			// Formats Obsidian can't play (Voice Memos `.qta`…) are kept as an MP3 made while decoding.
@@ -870,9 +867,9 @@ export default class MuesliPlugin extends Plugin {
 		}
 	}
 
-	private readDiskFile(abs: string): ArrayBuffer {
-		const buf = (require('fs') as typeof import('fs')).readFileSync(abs);
-		return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+	private async readDiskFile(abs: string): Promise<ArrayBuffer> {
+		const buf = await (await nodeFs()).promises.readFile(abs);
+		return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
 	}
 
 	async reprocess(folder: string) {
@@ -959,7 +956,7 @@ export default class MuesliPlugin extends Plugin {
 	private meter(parent: HTMLElement, db: number | null, label: string) {
 		const m = parent.createSpan({ cls: 'mn-meter', attr: { 'aria-label': label } });
 		const v = db == null ? 0 : Math.max(0, Math.min(1, (db + 60) / 50));
-		m.createSpan({ cls: 'mn-meter-fill' }).style.setProperty('--level', String(v));
+		m.createSpan({ cls: 'mn-meter-fill' }).setCssProps({ '--level': String(v) });
 		if (db == null) m.addClass('is-off');
 	}
 
@@ -1053,7 +1050,7 @@ class Player {
 		levels.forEach((db, i) => {
 			const m = this.meters.children[i] as HTMLElement;
 			m.toggleClass('is-off', db == null);
-			(m.firstElementChild as HTMLElement).style.setProperty('--level', String(db == null ? 0 : Math.max(0, Math.min(1, (db + 60) / 50))));
+			(m.firstElementChild as HTMLElement).setCssProps({ '--level': String(db == null ? 0 : Math.max(0, Math.min(1, (db + 60) / 50))) });
 		});
 	}
 

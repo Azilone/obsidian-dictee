@@ -7,6 +7,7 @@
  * `window.__q`, which the plugin drains on the same tick.
  */
 
+import { electronRemote, type BrowserWindowLike, type ScreenLike } from '../electron';
 import { t } from '../i18n';
 
 export type OverlayAction = 'toggle' | 'mark' | 'stop' | 'continue' | 'moved';
@@ -85,19 +86,8 @@ window.update=(s)=>{
 };
 </script></body></html>`;
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-function electronRemote(): any | null {
-	try {
-		// eslint-disable-next-line @typescript-eslint/no-var-requires
-		const electron = require('electron');
-		return electron?.remote ?? null;
-	} catch {
-		return null;
-	}
-}
-
 export class RecorderOverlay {
-	private win: any = null;
+	private win: BrowserWindowLike | null = null;
 	private closedByUser = false;
 	private lastState = '';
 	private pos: { x: number; y: number } | null;
@@ -143,7 +133,7 @@ export class RecorderOverlay {
 		if (this.opts.hiddenFromCapture) win.setContentProtection(true);
 		win.setMenuBarVisibility?.(false);
 		win.on('moved', () => {
-			const [px, py] = win.getPosition();
+			const [px = 0, py = 0] = win.getPosition();
 			this.pos = { x: px, y: py };
 			this.opts.onAction('moved', this.pos);
 		});
@@ -159,7 +149,7 @@ export class RecorderOverlay {
 		return true;
 	}
 
-	private defaultPosition(screen: any) {
+	private defaultPosition(screen: ScreenLike) {
 		const { workArea } = screen.getPrimaryDisplay();
 		return { x: workArea.x + workArea.width - W - 16, y: workArea.y + 12 };
 	}
@@ -170,7 +160,7 @@ export class RecorderOverlay {
 
 	/** Re-open after the user closed the window. */
 	show(): boolean {
-		if (this.visible) {
+		if (this.win && !this.win.isDestroyed()) {
 			this.win.showInactive();
 			return true;
 		}
@@ -191,7 +181,7 @@ export class RecorderOverlay {
 		if (!win || win.isDestroyed() || win.webContents.isLoading()) return;
 		let actions: OverlayAction[] = [];
 		try {
-			actions = await win.webContents.executeJavaScript('(()=>{const a=window.__q||[];window.__q=[];return a;})()', true);
+			actions = (await win.webContents.executeJavaScript('(()=>{const a=window.__q||[];window.__q=[];return a;})()', true)) as OverlayAction[];
 		} catch {
 			return;
 		}

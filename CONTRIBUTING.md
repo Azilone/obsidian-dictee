@@ -26,7 +26,7 @@ Use a test vault, not your real one. Reload the plugin (or Obsidian) after a cha
 1. Fork the repo and create a branch from `main`.
 2. Keep the output plain Markdown: a meeting folder must stay readable without the plugin.
 3. Any text shown to the user goes through `src/i18n.ts`, in **both English and French**. LLM prompts live in `src/pipeline/prompts.ts`, also in both languages.
-4. Run `bun run check` (type-check + tests) before opening the PR.
+4. Run `bun run check` (type-check, the Obsidian community ESLint rules, tests) before opening the PR.
 5. Describe what changed and how you tested it (call, in person, import, mobile). Screenshots are great for UI changes.
 
 Small, focused PRs are reviewed fastest.

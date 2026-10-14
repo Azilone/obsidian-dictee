@@ -220,7 +220,6 @@ export class MeetingSettingTab extends PluginSettingTab {
 			.addSlider((sl) =>
 				sl
 					.setLimits(2, 12, 1)
-					.setDynamicTooltip()
 					.setValue(s.chunkMinutes)
 					.onChange(async (v) => {
 						s.chunkMinutes = v;

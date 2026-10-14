@@ -10,7 +10,7 @@ export interface JournalEntry {
 
 /** Strip list markers / Markdown the model may still add, so the block renders as a clean list. */
 function clean(text: unknown): string {
-	return String(text ?? '')
+	return (typeof text === 'string' ? text : typeof text === 'number' ? String(text) : '')
 		.replace(/^\s*(?:[-*•–—]|\[[ x]\])\s*/i, '')
 		.replace(/\s+/g, ' ')
 		.trim();
@@ -18,16 +18,15 @@ function clean(text: unknown): string {
 
 export function parseEntry(raw: string): JournalEntry {
 	try {
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const j = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1));
+		const j = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)) as Record<string, unknown>;
 		const list = (v: unknown) => (Array.isArray(v) ? v.map(clean).filter(Boolean) : []);
 		return {
 			title: clean(j.title),
 			tldr: clean(j.tldr),
 			tasks: Array.isArray(j.tasks)
-				? j.tasks
-						.map((t: unknown) => (typeof t === 'string' ? { text: clean(t), done: false } : { text: clean((t as { text?: string }).text), done: !!(t as { done?: boolean }).done }))
-						.filter((t: { text: string }) => t.text)
+				? (j.tasks as unknown[])
+						.map((t) => (typeof t === 'string' ? { text: clean(t), done: false } : { text: clean((t as { text?: unknown }).text), done: !!(t as { done?: unknown }).done }))
+						.filter((t) => t.text)
 				: [],
 			events: list(j.events),
 			notes: list(j.notes),

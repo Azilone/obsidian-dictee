@@ -1,7 +1,7 @@
 import esbuild from 'esbuild';
-import builtins from 'builtin-modules';
 import { createHash } from 'crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'fs';
+import { builtinModules } from 'module';
 import { join } from 'path';
 
 const prod = process.argv[2] === 'production';
@@ -32,7 +32,7 @@ const copyAssets = {
 const ctx = await esbuild.context({
 	entryPoints: ['src/main.ts'],
 	bundle: true,
-	external: ['obsidian', 'electron', '@codemirror/*', '@lezer/*', ...builtins],
+	external: ['obsidian', 'electron', '@codemirror/*', '@lezer/*', ...builtinModules, ...builtinModules.map((m) => `node:${m}`)],
 	format: 'cjs',
 	target: 'es2020',
 	logLevel: 'info',

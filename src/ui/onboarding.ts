@@ -46,13 +46,14 @@ export class OnboardingModal extends Modal {
 				window.clearTimeout(timer);
 				const value = v.trim();
 				if (!value) return;
-				timer = window.setTimeout(async () => {
+				timer = window.setTimeout(() => {
 					const id = ++run;
 					show('pending', t.s.checking);
-					const res = await checkKey(value);
-					if (id !== run) return;
-					if (res.ok) this.plugin.setApiKey(value);
-					show(res.ok ? 'ok' : 'error', (res.ok ? '✓ ' : '✗ ') + res.message + (res.ok ? '' : t.s.notSaved));
+					void checkKey(value).then((res) => {
+						if (id !== run) return;
+						if (res.ok) this.plugin.setApiKey(value);
+						show(res.ok ? 'ok' : 'error', (res.ok ? '✓ ' : '✗ ') + res.message + (res.ok ? '' : t.s.notSaved));
+					});
 				}, 500);
 			});
 		});
@@ -76,10 +77,9 @@ export class OnboardingModal extends Modal {
 			const sys = this.meter(box, t.computerAudio);
 			const result = box.createDiv({ cls: 'mn-ob-result' });
 			new Setting(contentEl).addButton((b) =>
-				b.setButtonText(t.ob.test).onClick(async () => {
+				b.setButtonText(t.ob.test).onClick(() => {
 					b.setDisabled(true);
-					await this.soundTest(mic, sys, result);
-					b.setDisabled(false).setButtonText(t.ob.testAgain);
+					void this.soundTest(mic, sys, result).finally(() => b.setDisabled(false).setButtonText(t.ob.testAgain));
 				}),
 			);
 		}
@@ -120,7 +120,7 @@ export class OnboardingModal extends Modal {
 			for (let i = 0; i < pcm.length; i++) sum += pcm[i] * pcm[i];
 			const db = 20 * Math.log10(Math.sqrt(sum / Math.max(1, pcm.length)) / 32768 + 1e-9);
 			m.peak = Math.max(m.peak, db);
-			m.fill.style.setProperty('--level', String(Math.max(0, Math.min(1, (db + 60) / 50))));
+			m.fill.setCssProps({ '--level': String(Math.max(0, Math.min(1, (db + 60) / 50))) });
 		};
 		result.setText(t.ob.installing);
 		let sysError: string | null = null;
@@ -148,7 +148,7 @@ export class OnboardingModal extends Modal {
 		const heard = (m: typeof mic) => m.peak > -55;
 		mic.mark.setText(heard(mic) ? '✓' : '✗');
 		sys.mark.setText(!sysError && heard(sys) ? '✓' : '✗');
-		for (const m of [mic, sys]) m.fill.style.setProperty('--level', '0');
+		for (const m of [mic, sys]) m.fill.setCssProps({ '--level': '0' });
 		result.setText(
 			sysError
 				? t.ob.sysError(sysError)

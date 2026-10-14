@@ -1,5 +1,6 @@
 /** Audio inputs: the microphone (Web Audio) and system output (native helper over stdout). */
 
+import { nodeChildProcess, nodeFs, type ChildProcess } from '../node';
 import { SAMPLE_RATE } from './track';
 import { t } from '../i18n';
 
@@ -118,16 +119,14 @@ export class MicSource implements AudioSource {
 
 /** Keeps the screen on while recording on mobile, where a locked screen cuts the mic. */
 export class ScreenLock {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	private lock: any = null;
+	private lock: WakeLockSentinel | null = null;
 	private wanted = false;
 
 	async acquire() {
 		this.wanted = true;
 		if (!('wakeLock' in navigator) || this.lock) return;
 		try {
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			this.lock = await (navigator as any).wakeLock.request('screen');
+			this.lock = await navigator.wakeLock.request('screen');
 			this.lock.addEventListener('release', () => (this.lock = null));
 		} catch {
 			this.lock = null;
@@ -141,7 +140,7 @@ export class ScreenLock {
 
 	release() {
 		this.wanted = false;
-		void this.lock?.release?.();
+		void this.lock?.release();
 		this.lock = null;
 	}
 }
@@ -155,7 +154,6 @@ export async function listMicrophones(): Promise<MediaDeviceInfo[]> {
 	}
 }
 
-/* eslint-disable @typescript-eslint/no-var-requires */
 export interface HelperEvent {
 	event?: string;
 	message?: string;
@@ -167,8 +165,8 @@ export interface HelperEvent {
  * on stderr. Used for system audio capture (no args) and for decoding files (`--decode <path>`).
  */
 export class HelperSource implements AudioSource {
-	private proc: import('child_process').ChildProcess | null = null;
-	private carry: Buffer | null = null;
+	private proc: ChildProcess | null = null;
+	private carry: Uint8Array | null = null;
 	private stopping = false;
 	/** Resolves when the helper exits (after `started`). */
 	readonly done: Promise<number | null>;
@@ -184,43 +182,48 @@ export class HelperSource implements AudioSource {
 		this.done = new Promise((r) => (this.resolveDone = r));
 	}
 
-	start(): Promise<void> {
-		const { spawn } = require('child_process') as typeof import('child_process');
-		const fs = require('fs') as typeof import('fs');
-		if (!fs.existsSync(this.binary)) {
-			return Promise.reject(new Error(t.helperNotFound(this.binary)));
-		}
+	async start(): Promise<void> {
+		const { spawn } = await nodeChildProcess();
+		const fs = await nodeFs();
+		if (!fs.existsSync(this.binary)) throw new Error(t.helperNotFound(this.binary));
 		try {
 			fs.chmodSync(this.binary, 0o755);
 		} catch {
 			/* read-only is fine if already executable */
 		}
+		// Stopped while the modules were loading: never spawn.
+		if (this.stopping) throw new Error(t.captureStopped);
 		return new Promise((resolve, reject) => {
 			let started = false;
 			const proc = spawn(this.binary, this.args, { stdio: ['pipe', 'pipe', 'pipe'] });
 			this.proc = proc;
-			proc.stdout!.on('data', (buf: Buffer) => {
+			proc.stdout.on('data', (chunk: Uint8Array) => {
+				let buf = chunk;
 				if (this.carry) {
-					buf = Buffer.concat([this.carry, buf]);
+					buf = new Uint8Array(this.carry.length + chunk.length);
+					buf.set(this.carry);
+					buf.set(chunk, this.carry.length);
 					this.carry = null;
 				}
 				const even = buf.length & ~1;
-				if (even < buf.length) this.carry = buf.subarray(even);
+				if (even < buf.length) this.carry = buf.slice(even);
 				if (!even) return;
+				const view = new DataView(buf.buffer, buf.byteOffset, even);
 				const pcm = new Int16Array(even / 2);
-				for (let i = 0; i < pcm.length; i++) pcm[i] = buf.readInt16LE(i * 2);
+				for (let i = 0; i < pcm.length; i++) pcm[i] = view.getInt16(i * 2, true);
 				this.onPcm(pcm);
 			});
 			let errBuf = '';
-			proc.stderr!.on('data', (d: Buffer) => {
-				errBuf += d.toString();
+			const decoder = new TextDecoder();
+			proc.stderr.on('data', (d: Uint8Array) => {
+				errBuf += decoder.decode(d, { stream: true });
 				let nl;
 				while ((nl = errBuf.indexOf('\n')) >= 0) {
 					const line = errBuf.slice(0, nl);
 					errBuf = errBuf.slice(nl + 1);
 					let msg: HelperEvent;
 					try {
-						msg = JSON.parse(line);
+						msg = JSON.parse(line) as HelperEvent;
 					} catch {
 						continue;
 					}
@@ -228,7 +231,7 @@ export class HelperSource implements AudioSource {
 						started = true;
 						resolve();
 					} else if (msg.event === 'error') {
-						if (!started) reject(new Error(msg.message));
+						if (!started) reject(new Error(msg.message ?? t.captureError));
 						else this.onError(msg.message ?? t.captureError);
 					}
 					this.onEvent?.(msg);

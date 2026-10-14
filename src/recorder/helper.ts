@@ -6,6 +6,7 @@
  */
 
 import { Platform } from 'obsidian';
+import { nodeFs } from '../node';
 
 declare const HELPER_SHA256: string;
 declare const HELPER_BASE64: string;
@@ -25,7 +26,7 @@ export function ensureHelper(path: string): Promise<void> {
 }
 
 async function install(path: string) {
-	const fs = require('fs') as typeof import('fs');
+	const fs = await nodeFs();
 	if (fs.existsSync(path) && (await sha256(fs.readFileSync(path))) === HELPER_SHA256) return;
 	const bin = atob(HELPER_BASE64);
 	const bytes = new Uint8Array(bin.length);

@@ -72,7 +72,7 @@ export class RecorderView extends ItemView {
 			this.els.time?.setText(formatClock(s.elapsed));
 			this.contentEl.toggleClass('is-paused', s.paused);
 			const db = s.level('mic');
-			this.els.meter?.style.setProperty('--level', String(db == null || s.paused ? 0 : Math.max(0, Math.min(1, (db + 60) / 50))));
+			this.els.meter?.setCssProps({ '--level': String(db == null || s.paused ? 0 : Math.max(0, Math.min(1, (db + 60) / 50))) });
 			if (this.els.toggle) {
 				setIcon(this.els.toggle, s.paused ? 'play' : 'pause');
 				this.els.toggle.setAttribute('aria-label', s.paused ? t.resume : t.pause);

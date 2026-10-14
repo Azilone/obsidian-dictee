@@ -7,6 +7,8 @@
  * Voice Memos database through `/usr/bin/sqlite3` when possible, else from the file itself.
  */
 
+import { nodeChildProcess, nodeFs, nodeOs } from '../node';
+
 export const VOICE_MEMOS_DIR = '~/Library/Group Containers/group.com.apple.VoiceMemos.shared/Recordings';
 
 export interface VoiceMemo {
@@ -22,8 +24,8 @@ export interface VoiceMemo {
 
 export class NoAccessError extends Error {}
 
-function expand(dir: string): string {
-	const os = require('os') as typeof import('os');
+async function expand(dir: string): Promise<string> {
+	const os = await nodeOs();
 	return dir.replace(/^~(?=\/|$)/, os.homedir());
 }
 
@@ -34,10 +36,10 @@ export function dateFromName(name: string): Date | null {
 }
 
 /** Title and duration per file name, from the Voice Memos database. Empty when unreadable. */
-function readDatabase(dir: string): Map<string, { title: string; duration: number }> {
+async function readDatabase(dir: string): Promise<Map<string, { title: string; duration: number }>> {
 	const out = new Map<string, { title: string; duration: number }>();
-	const fs = require('fs') as typeof import('fs');
-	const { execFileSync } = require('child_process') as typeof import('child_process');
+	const fs = await nodeFs();
+	const { execFileSync } = await nodeChildProcess();
 	const db = `${dir}/CloudRecordings.db`;
 	if (!fs.existsSync(db)) return out;
 	try {
@@ -62,14 +64,14 @@ function readDatabase(dir: string): Map<string, { title: string; duration: numbe
  * Memos recorded after `since` and not in `seen`, oldest first. A file still growing (iCloud
  * download in progress) is left for the next check.
  */
-export function listNewMemos(dir: string, since: Date, seen: Set<string>): VoiceMemo[] {
-	const fs = require('fs') as typeof import('fs');
-	const root = expand(dir);
+export async function listNewMemos(dir: string, since: Date, seen: Set<string>): Promise<VoiceMemo[]> {
+	const fs = await nodeFs();
+	const root = await expand(dir);
 	let names: string[];
 	try {
 		names = fs.readdirSync(root);
 	} catch (e) {
-		const code = (e as NodeJS.ErrnoException).code;
+		const code = (e as { code?: string }).code;
 		if (code === 'EPERM' || code === 'EACCES') throw new NoAccessError('Full Disk Access required');
 		if (code === 'ENOENT') return [];
 		throw e;
@@ -77,11 +79,11 @@ export function listNewMemos(dir: string, since: Date, seen: Set<string>): Voice
 	// `.qta`: Voice Memos' QuickTime format (iOS 18+, recordings with a transcript).
 	const fresh = names.filter((n) => /\.(m4a|qta)$/i.test(n) && !seen.has(n));
 	if (!fresh.length) return [];
-	const db = readDatabase(root);
+	const db = await readDatabase(root);
 	const out: VoiceMemo[] = [];
 	for (const name of fresh) {
 		const path = `${root}/${name}`;
-		let stat: import('fs').Stats;
+		let stat: ReturnType<typeof fs.statSync>;
 		try {
 			stat = fs.statSync(path);
 		} catch {

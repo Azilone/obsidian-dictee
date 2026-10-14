@@ -43,7 +43,7 @@ export function blocks(lines: string[], size: number): string[] {
 }
 
 async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T, i: number) => Promise<R>): Promise<R[]> {
-	const out: R[] = new Array(items.length);
+	const out = new Array<R>(items.length);
 	let next = 0;
 	await Promise.all(
 		Array.from({ length: Math.min(limit, items.length) }, async () => {
@@ -326,9 +326,10 @@ export async function writeMeetingFiles(
 export function dailyNotePath(app: App, settings: MeetingSettings, date: string): string {
 	const m = window.moment(date);
 	if (settings.dailyNoteFormat.trim()) return normalizePath(`${m.format(settings.dailyNoteFormat.trim())}.md`);
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const core = (app as any).internalPlugins?.getPluginById?.('daily-notes')?.instance?.options ?? {};
-	const folder = String(core.folder ?? '').replace(/^\/+|\/+$/g, '');
+	// Core plugin options are not part of the public API.
+	const internal = (app as unknown as { internalPlugins?: { getPluginById?(id: string): { instance?: { options?: { folder?: string; format?: string } } } | null } }).internalPlugins;
+	const core = internal?.getPluginById?.('daily-notes')?.instance?.options ?? {};
+	const folder = (core.folder ?? '').replace(/^\/+|\/+$/g, '');
 	const name = m.format(core.format || 'YYYY-MM-DD');
 	return normalizePath(folder ? `${folder}/${name}.md` : `${name}.md`);
 }
@@ -355,9 +356,9 @@ export async function writeVoiceNote(
 	const dailyPath = dailyNotePath(app, settings, state.startedAt);
 	const dir = dailyPath.split('/').slice(0, -1).join('/');
 	if (dir && !app.vault.getAbstractFileByPath(dir)) await app.vault.createFolder(dir);
-	let daily = app.vault.getAbstractFileByPath(dailyPath);
-	if (!(daily instanceof TFile)) daily = await app.vault.create(dailyPath, `# ${(dailyPath.split('/').pop() ?? '').replace(/\.md$/, '')}\n\n`);
-	const file = daily as TFile;
+	const existing = app.vault.getAbstractFileByPath(dailyPath);
+	const file =
+		existing instanceof TFile ? existing : await app.vault.create(dailyPath, `# ${(dailyPath.split('/').pop() ?? '').replace(/\.md$/, '')}\n\n`);
 
 	const folder = app.vault.getAbstractFileByPath(state.folder);
 	const audio =
