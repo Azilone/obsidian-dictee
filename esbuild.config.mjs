@@ -10,11 +10,13 @@ const vault = process.env.VAULT;
 const outdir = vault ? join(vault, '.obsidian', 'plugins', 'muesli') : '.';
 if (vault) mkdirSync(outdir, { recursive: true });
 
-// Production builds pin the macOS helper they ship with (see src/recorder/helper.ts): the plugin
-// downloads it from the matching GitHub release when it is missing. Dev builds pin nothing.
+// Production builds embed the macOS helper (see src/recorder/helper.ts), written next to the plugin
+// on first use. Dev builds embed nothing and use the helper copied into the vault below.
 const HELPER = 'native/bin/meeting-tap';
 if (prod && process.env.CI && !existsSync(HELPER)) throw new Error(`${HELPER} is missing: run ./native/build.sh first`);
-const helperSha = prod && existsSync(HELPER) ? createHash('sha256').update(readFileSync(HELPER)).digest('hex') : '';
+const helper = prod && existsSync(HELPER) ? readFileSync(HELPER) : null;
+const helperSha = helper ? createHash('sha256').update(helper).digest('hex') : '';
+const helperB64 = helper ? helper.toString('base64') : '';
 
 const copyAssets = {
 	name: 'copy-assets',
@@ -38,7 +40,7 @@ const ctx = await esbuild.context({
 	treeShaking: true,
 	minify: prod,
 	outfile: join(outdir, 'main.js'),
-	define: { HELPER_SHA256: JSON.stringify(helperSha) },
+	define: { HELPER_SHA256: JSON.stringify(helperSha), HELPER_BASE64: JSON.stringify(helperB64) },
 	plugins: [copyAssets],
 });
 

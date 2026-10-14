@@ -35,4 +35,4 @@ Small, focused PRs are reviewed fastest.
 
 1. Bump `version` in `manifest.json` and `package.json`, and add it to `versions.json`.
 2. Commit, then push a tag with exactly that version (no `v` prefix): `git tag 0.2.0 && git push origin 0.2.0`.
-3. The release workflow builds the helper and the plugin on macOS and publishes `main.js`, `manifest.json`, `styles.css` and `meeting-tap`. The plugin downloads `meeting-tap` from the release matching its version, so the tag must match the manifest.
+3. The release workflow builds the helper and the plugin on macOS (the helper is embedded in `main.js`) and publishes `main.js`, `manifest.json`, `styles.css` and, for reference, `meeting-tap`. The tag must match the manifest version.

@@ -94,9 +94,9 @@ Obsidian 1.11.4 or later, and an [OpenRouter API key](https://openrouter.ai/keys
 
 On first launch, a **setup screen** walks you through it (also available from *Settings → Muesli → Setup* or the *Set up Muesli* command):
 
-1. **Settings → Muesli → OpenRouter API key**: paste your key. It is checked right away, the remaining credit is shown, and it is saved in Obsidian's secret storage (never in your vault or in `data.json`).
+1. **OpenRouter API key**: get one at [openrouter.ai/keys](https://openrouter.ai/keys) and paste your key. It is checked right away, the remaining credit is shown, and it is saved in Obsidian's secret storage (never in your vault or in `data.json`).
 2. **Your name**: used for your microphone in transcripts.
-3. **Sound test (Mac)**: Muesli downloads its small audio helper (see [disclosures](#privacy-and-disclosures)), then macOS asks to allow **Muesli** to record the computer's audio. Accept, or the other participants won't be captured. Play some audio during the test: both meters should move. You can change the permission later in *System Settings → Privacy & Security → Screen & System Audio Recording*. macOS may ask again after an update.
+3. **Sound test (Mac)**: Muesli sets up its small audio helper (see [disclosures](#privacy-and-disclosures)), then macOS asks to allow **Muesli** to record the computer's audio. Accept, or the other participants won't be captured. Play some audio during the test: both meters should move. You can change the permission later in *System Settings → Privacy & Security → Screen & System Audio Recording*. macOS may ask again after an update.
 4. Optional: **Default meeting type** (call or in person), **default summary template**, **summary language**, and the folders.
 
 That's it: ribbon icon → **Meeting** → write → stop.
@@ -146,7 +146,7 @@ You pay OpenRouter directly. As a rough guide: transcription is about **$0.10 pe
 
 - **Network**: audio and text are sent **only to [OpenRouter](https://openrouter.ai)** (and the model providers it routes to), with your own key. No telemetry, no analytics, no server of ours.
 - **Paid service**: OpenRouter is pay-per-use; you need an account and credit.
-- **Native helper (macOS)**: system audio capture and fast audio decoding use `meeting-tap`, a small open-source Swift program ([`native/macos/main.swift`](native/macos/main.swift)). Obsidian does not install extra files, so on first use Muesli downloads it from **this repository's GitHub release** matching the plugin version, and checks its SHA-256 against the one built into `main.js` before running it. Release files are built by GitHub Actions with [build provenance attestations](https://github.com/Azilone/obsidian-muesli/attestations). You can also build it yourself with `./native/build.sh`.
+- **Native helper (macOS)**: system audio capture and fast audio decoding use `meeting-tap`, a small open-source Swift program ([`native/macos/main.swift`](native/macos/main.swift)). Obsidian only installs `main.js`, `manifest.json` and `styles.css`, so the release build embeds the compiled helper in `main.js` (with its SHA-256) and Muesli writes it to its plugin folder on first use. Nothing is downloaded. Release files are built by GitHub Actions from this repository, with [build provenance attestations](https://github.com/Azilone/obsidian-muesli/attestations); the same binary is attached to each release as `meeting-tap`. You can also build it yourself with `./native/build.sh`.
 - **Files outside the vault**: only when you import a file from disk, or with the optional Voice Memos inbox (reads `~/Library/Group Containers/group.com.apple.VoiceMemos.shared`, requires Full Disk Access).
 - Raw audio chunks and API responses stay in a hidden `.raw/` folder inside each meeting folder. Delete it once you're happy with the result. Syncing your vault with git? Consider adding `**/.raw/` and `*.mp3` to `.gitignore`.
 - **Always tell participants you are recording**, and follow the consent laws where you live.
@@ -179,7 +179,7 @@ src/
   openrouter.ts        API client (STT, chat, key check)
   recorder/track.ts    VAD, silence removal, chunking, time maps
   recorder/sources.ts  microphone (AudioWorklet) and system audio (helper)
-  recorder/helper.ts   download and checksum of the macOS helper
+  recorder/helper.ts   writes the macOS helper embedded in main.js
   recorder/decode.ts   audio file → 16 kHz PCM (helper `--decode`, Web Audio fallback)
   recorder/voice-memos.ts  iPhone Voice Memos inbox (macOS)
   pipeline/            merge, speaker matching, clean-up, summary, journal, prompts (EN + FR)

@@ -307,12 +307,13 @@ export default class MuesliPlugin extends Plugin {
 		return base ? `${base}/${this.manifest.dir}/meeting-tap` : '';
 	}
 
-	/** Fetch the macOS helper if needed; failures are reported and the caller degrades gracefully. */
+	/** Write the macOS helper if needed; on failure the caller degrades gracefully (mic only, Web Audio decoding). */
 	async installHelper() {
 		try {
-			await ensureHelper(this.helperPath, this.manifest.version);
+			await ensureHelper(this.helperPath);
 		} catch (e) {
 			console.error('[muesli] helper install failed', e);
+			new Notice(t.helperFailed((e as Error).message), 10000);
 		}
 	}
 

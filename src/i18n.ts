@@ -66,7 +66,6 @@ const en = {
 	systemAudioUnavailable: (msg: string) =>
 		`Computer audio unavailable (${msg}). Recording the microphone only — other participants will only be heard through your speakers.`,
 	micUnavailable: (msg: string) => `Microphone unavailable: ${msg}`,
-	helperDownloading: 'Muesli: downloading the macOS audio helper…',
 	helperFailed: (msg: string) => `Muesli: could not install the macOS audio helper (${msg}).`,
 
 	// Default names
@@ -317,7 +316,6 @@ const fr: Strings = {
 	systemAudioUnavailable: (msg) =>
 		`Son de l’ordinateur indisponible (${msg}). Enregistrement du micro seul — les autres participants ne seront entendus que via tes haut-parleurs.`,
 	micUnavailable: (msg) => `Micro indisponible : ${msg}`,
-	helperDownloading: 'Muesli : téléchargement du helper audio macOS…',
 	helperFailed: (msg) => `Muesli : impossible d’installer le helper audio macOS (${msg}).`,
 
 	meeting: 'Réunion',

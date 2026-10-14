@@ -1,47 +1,36 @@
 /**
- * The macOS audio helper (`meeting-tap`) is not part of what Obsidian installs (main.js, manifest,
- * styles), so it is fetched once from the GitHub release matching the plugin version and checked
- * against the SHA-256 baked into main.js at build time. Builds without a helper (dev watch mode)
- * have no hash and leave whatever binary is in the plugin folder alone.
+ * The macOS audio helper (`meeting-tap`) ships inside main.js: Obsidian only installs main.js,
+ * manifest.json and styles.css, so production builds embed the binary (base64) with its SHA-256,
+ * and it is written next to the plugin on first use, or when an update brings a new one.
+ * Dev builds embed nothing and leave whatever binary is in the plugin folder alone.
  */
 
-import { Notice, Platform, requestUrl } from 'obsidian';
-import { t } from '../i18n';
+import { Platform } from 'obsidian';
 
 declare const HELPER_SHA256: string;
-
-const REPO = 'Azilone/obsidian-muesli';
+declare const HELPER_BASE64: string;
 
 let pending: Promise<void> | null = null;
 
-function sha256(data: Uint8Array): string {
-	const crypto = require('crypto') as typeof import('crypto');
-	return crypto.createHash('sha256').update(data).digest('hex');
+async function sha256(data: Uint8Array): Promise<string> {
+	const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(data));
+	return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** Make sure `path` holds the helper this build expects; downloads it when missing or outdated. */
-export function ensureHelper(path: string, version: string): Promise<void> {
-	if (!path || !Platform.isDesktopApp || !Platform.isMacOS || !HELPER_SHA256) return Promise.resolve();
-	pending ??= install(path, version).finally(() => (pending = null));
+/** Make sure `path` holds the helper this build ships with. */
+export function ensureHelper(path: string): Promise<void> {
+	if (!path || !Platform.isDesktopApp || !Platform.isMacOS || !HELPER_BASE64) return Promise.resolve();
+	pending ??= install(path).finally(() => (pending = null));
 	return pending;
 }
 
-async function install(path: string, version: string) {
+async function install(path: string) {
 	const fs = require('fs') as typeof import('fs');
-	if (fs.existsSync(path) && sha256(fs.readFileSync(path)) === HELPER_SHA256) return;
-	const notice = new Notice(t.helperDownloading, 0);
-	try {
-		const res = await requestUrl({ url: `https://github.com/${REPO}/releases/download/${version}/meeting-tap`, throw: false });
-		if (res.status !== 200) throw new Error(`HTTP ${res.status}`);
-		const bytes = new Uint8Array(res.arrayBuffer);
-		if (sha256(bytes) !== HELPER_SHA256) throw new Error('checksum mismatch');
-		const tmp = `${path}.download`;
-		fs.writeFileSync(tmp, bytes, { mode: 0o755 });
-		fs.renameSync(tmp, path);
-	} catch (e) {
-		new Notice(t.helperFailed((e as Error).message), 10000);
-		throw e;
-	} finally {
-		notice.hide();
-	}
+	if (fs.existsSync(path) && (await sha256(fs.readFileSync(path))) === HELPER_SHA256) return;
+	const bin = atob(HELPER_BASE64);
+	const bytes = new Uint8Array(bin.length);
+	for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+	const tmp = `${path}.tmp`;
+	fs.writeFileSync(tmp, bytes, { mode: 0o755 });
+	fs.renameSync(tmp, path);
 }
