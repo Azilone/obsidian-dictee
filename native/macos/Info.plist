@@ -3,12 +3,12 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>io.github.azilone.meeting-notes.tap</string>
+	<string>io.github.azilone.muesli.tap</string>
 	<key>CFBundleName</key>
-	<string>Meeting Notes</string>
+	<string>Muesli</string>
 	<key>CFBundleVersion</key>
 	<string>0.1.0</string>
 	<key>NSAudioCaptureUsageDescription</key>
-	<string>Meeting Notes enregistre le son de tes réunions pour les transcrire.</string>
+	<string>Muesli records the audio of your meetings to transcribe them.</string>
 </dict>
 </plist>

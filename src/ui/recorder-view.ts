@@ -6,9 +6,10 @@
 import { ItemView, Platform, setIcon, type WorkspaceLeaf } from 'obsidian';
 import { formatClock } from '../pipeline/merge';
 import type { MeetingKind } from '../session';
-import type DicteePlugin from '../main';
+import type MuesliPlugin from '../main';
+import { t } from '../i18n';
 
-export const RECORDER_VIEW = 'dictee-recorder';
+export const RECORDER_VIEW = 'muesli-recorder';
 
 export class RecorderView extends ItemView {
 	private template = '';
@@ -24,7 +25,7 @@ export class RecorderView extends ItemView {
 
 	constructor(
 		leaf: WorkspaceLeaf,
-		private plugin: DicteePlugin,
+		private plugin: MuesliPlugin,
 	) {
 		super(leaf);
 	}
@@ -34,7 +35,7 @@ export class RecorderView extends ItemView {
 	}
 
 	getDisplayText() {
-		return 'Enregistreur';
+		return t.recorder;
 	}
 
 	getIcon() {
@@ -74,10 +75,10 @@ export class RecorderView extends ItemView {
 			this.els.meter?.style.setProperty('--level', String(db == null || s.paused ? 0 : Math.max(0, Math.min(1, (db + 60) / 50))));
 			if (this.els.toggle) {
 				setIcon(this.els.toggle, s.paused ? 'play' : 'pause');
-				this.els.toggle.setAttribute('aria-label', s.paused ? 'Reprendre' : 'Pause');
+				this.els.toggle.setAttribute('aria-label', s.paused ? t.resume : t.pause);
 			}
 			const lost = Math.round(s.lostSeconds);
-			this.els.lost?.setText(lost >= 5 ? `⚠️ ${formatClock(lost)} non enregistrées (Obsidian était en arrière-plan)` : '');
+			this.els.lost?.setText(lost >= 5 ? t.notRecorded(formatClock(lost)) : '');
 		}
 		const busy = this.plugin.processingLabel();
 		this.els.status?.setText(busy ?? '');
@@ -88,8 +89,8 @@ export class RecorderView extends ItemView {
 
 		const seg = root.createDiv({ cls: 'mn-rec-seg' });
 		const choices: [MeetingKind, string, string][] = [
-			['voice', 'mic', 'Journal'],
-			['meeting', 'users', 'Réunion'],
+			['voice', 'mic', t.journal],
+			['meeting', 'users', t.meeting],
 		];
 		for (const [kind, icon, label] of choices) {
 			const b = seg.createEl('button', { cls: 'mn-rec-seg-btn' });
@@ -108,11 +109,11 @@ export class RecorderView extends ItemView {
 			cls: 'mn-rec-hint',
 			text:
 				this.kind === 'voice'
-					? 'Parle librement : le résumé en bullet journal ira dans ta note du jour.'
-					: 'Pose le téléphone : transcript et compte rendu à la fin.',
+					? t.hintVoice
+					: t.hintMeeting,
 		});
 
-		const big = root.createEl('button', { cls: 'mn-rec-big', attr: { 'aria-label': 'Enregistrer' } });
+		const big = root.createEl('button', { cls: 'mn-rec-big', attr: { 'aria-label': t.record } });
 		big.createSpan({ cls: 'mn-rec-big-dot' });
 		big.addEventListener('click', () => {
 			big.disabled = true;
@@ -120,13 +121,13 @@ export class RecorderView extends ItemView {
 				.startFromRecorder(this.kind, { title: '', template: this.template })
 				.finally(() => (big.disabled = false));
 		});
-		root.createDiv({ cls: 'mn-rec-label', text: 'Enregistrer' });
+		root.createDiv({ cls: 'mn-rec-label', text: t.record });
 
 		this.els.status = root.createDiv({ cls: 'mn-rec-status' });
 		if (Platform.isMobile) {
 			root.createDiv({
 				cls: 'mn-rec-note',
-				text: 'Garde Obsidian ouvert pendant l’enregistrement : iOS coupe le micro si tu changes d’app ou verrouilles l’écran.',
+				text: t.keepOpen,
 			});
 		}
 	}
@@ -134,7 +135,7 @@ export class RecorderView extends ItemView {
 	private buildLive() {
 		const s = this.plugin.session!;
 		const root = this.contentEl.createDiv({ cls: 'mn-rec-body is-live' });
-		root.createDiv({ cls: 'mn-rec-kind', text: s.state.kind === 'voice' ? 'Journal' : 'Réunion' });
+		root.createDiv({ cls: 'mn-rec-kind', text: s.state.kind === 'voice' ? t.journal : t.meeting });
 		this.els.time = root.createDiv({ cls: 'mn-rec-time' });
 		const meter = root.createDiv({ cls: 'mn-rec-meter' });
 		this.els.meter = meter.createDiv({ cls: 'mn-rec-meter-fill' });
@@ -146,7 +147,7 @@ export class RecorderView extends ItemView {
 			cur?.setPaused(!cur.paused);
 			this.refresh();
 		});
-		const stop = row.createEl('button', { cls: 'mn-rec-ctl mod-stop', attr: { 'aria-label': 'Terminer' } });
+		const stop = row.createEl('button', { cls: 'mn-rec-ctl mod-stop', attr: { 'aria-label': t.end } });
 		setIcon(stop, 'square');
 		stop.addEventListener('click', () => void this.plugin.stopMeeting());
 

@@ -1,13 +1,20 @@
 {
-  "name": "obsidian-dictee",
+  "name": "obsidian-muesli",
   "version": "0.1.0",
-  "description": "Record meetings, take notes, get a diarized transcript and an AI summary — natively in Obsidian.",
+  "description": "The AI notepad for back-to-back meetings, in Obsidian. Notes, actions and memory in your vault, without a meeting bot.",
   "main": "main.js",
   "scripts": {
     "dev": "bun esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && bun esbuild.config.mjs production",
+    "check": "tsc -noEmit -skipLibCheck && bun test tests",
     "test": "bun test tests"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Azilone/obsidian-muesli.git"
+  },
+  "homepage": "https://github.com/Azilone/obsidian-muesli#readme",
+  "bugs": "https://github.com/Azilone/obsidian-muesli/issues",
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.11.0",

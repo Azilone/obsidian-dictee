@@ -6,6 +6,7 @@
 
 import { HelperSource, type PcmHandler } from './sources';
 import { SAMPLE_RATE } from './track';
+import { t } from '../i18n';
 
 export const AUDIO_EXTENSIONS = ['m4a', 'mp3', 'wav', 'aac', 'ogg', 'oga', 'opus', 'webm', 'mp4', 'flac', 'aiff', 'aif', 'caf', 'qta', 'mov'];
 
@@ -30,7 +31,7 @@ export async function decodeWithHelper(helper: string, absPath: string, hooks: D
 	await src.start();
 	const code = await src.done;
 	if (failure) throw new Error(failure);
-	if (code !== 0) throw new Error(`Le décodage a échoué (code ${code})`);
+	if (code !== 0) throw new Error(t.decodeFailed(code));
 }
 
 /** Decode with the browser's audio stack (resampled to 16 kHz mono by the OfflineAudioContext). */
@@ -66,7 +67,7 @@ export async function decodeFile(
 	} catch (e) {
 		// Once audio has been pushed downstream, replaying from the start would duplicate it.
 		if (received) throw e;
-		console.warn('[dictee] helper decode failed, falling back to Web Audio', e);
+		console.warn('[muesli] helper decode failed, falling back to Web Audio', e);
 		await decodeWithWebAudio(await readBytes(), hooks);
 	}
 }

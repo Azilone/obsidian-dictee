@@ -36,12 +36,12 @@ export function normalizePeople(raw: unknown, utts: Utterance[]): Person[] {
 	return people;
 }
 
-/** Label → display name; unnamed people become "Intervenant N". */
-export function nameMap(people: Person[], myName: string): Record<string, string> {
+/** Label → display name; unnamed people become "Speaker N" (`unnamed`). */
+export function nameMap(people: Person[], myName: string, unnamed: (n: number) => string): Record<string, string> {
 	const map: Record<string, string> = { me: myName };
 	let n = 0;
 	for (const p of people) {
-		const name = p.name || `Intervenant ${++n}`;
+		const name = p.name || unnamed(++n);
 		for (const l of p.labels) map[l] = name;
 	}
 	return map;

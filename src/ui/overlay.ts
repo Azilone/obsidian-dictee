@@ -7,6 +7,8 @@
  * `window.__q`, which the plugin drains on the same tick.
  */
 
+import { t } from '../i18n';
+
 export type OverlayAction = 'toggle' | 'mark' | 'stop' | 'continue' | 'moved';
 
 export interface OverlayState {
@@ -53,13 +55,14 @@ body.idle #info,body.idle #meters{display:none}
 </style></head><body>
 <div id="pill">
 <span id="dot"></span><span id="time">00:00</span><span id="meters"></span><span id="info"></span>
-<span id="ask"><span id="askText"></span><button id="cont">Continuer</button><button class="stop" id="askStop">Terminer</button></span>
-<button id="toggle" title="Pause"><svg viewBox="0 0 16 16"><path d="M4 2h3v12H4zM9 2h3v12H9z"/></svg></button>
-<button id="mark" title="Marquer ce moment"><svg viewBox="0 0 16 16"><path d="M3 1h10v14l-5-3.5L3 15z"/></svg></button>
-<button id="stop" class="stop" title="Terminer la réunion"><svg viewBox="0 0 16 16"><rect x="3" y="3" width="10" height="10" rx="1.5"/></svg></button>
+<span id="ask"><span id="askText"></span><button id="cont">${t.overlay.continue}</button><button class="stop" id="askStop">${t.overlay.end}</button></span>
+<button id="toggle" title="${t.overlay.pause}"><svg viewBox="0 0 16 16"><path d="M4 2h3v12H4zM9 2h3v12H9z"/></svg></button>
+<button id="mark" title="${t.overlay.mark}"><svg viewBox="0 0 16 16"><path d="M3 1h10v14l-5-3.5L3 15z"/></svg></button>
+<button id="stop" class="stop" title="${t.overlay.stop}"><svg viewBox="0 0 16 16"><rect x="3" y="3" width="10" height="10" rx="1.5"/></svg></button>
 </div>
 <script>
 window.__q=[];
+const L=${JSON.stringify(t.overlay)};
 const q=(a)=>window.__q.push(a);
 const PAUSE='<svg viewBox="0 0 16 16"><path d="M4 2h3v12H4zM9 2h3v12H9z"/></svg>';
 const PLAY='<svg viewBox="0 0 16 16"><path d="M4 2l10 6-10 6z"/></svg>';
@@ -73,12 +76,12 @@ window.update=(s)=>{
 	document.getElementById('time').textContent=s.time;
 	document.body.classList.toggle('paused',s.paused);
 	document.body.classList.toggle('idle',!!s.idle);
-	if(s.paused!==paused){paused=s.paused;const b=document.getElementById('toggle');b.innerHTML=paused?PLAY:PAUSE;b.title=paused?'Reprendre':'Pause';}
+	if(s.paused!==paused){paused=s.paused;const b=document.getElementById('toggle');b.innerHTML=paused?PLAY:PAUSE;b.title=paused?L.resume:L.pause;}
 	const m=document.getElementById('meters');
 	while(m.children.length<s.levels.length){const d=document.createElement('span');d.className='m';d.innerHTML='<i></i>';m.appendChild(d);}
 	s.levels.forEach((db,i)=>{const d=m.children[i];d.classList.toggle('off',db==null);d.firstChild.style.setProperty('--l',db==null?0:Math.max(0,Math.min(1,(db+60)/50)));});
 	document.getElementById('info').textContent=s.sent+(s.cost?' ≈ '+s.cost:'');
-	if(s.idle){document.getElementById('askText').textContent='Silence depuis '+s.idle.minutes+' min — toujours en réunion ? ('+s.idle.left+' s)';}
+	if(s.idle){document.getElementById('askText').textContent=L.silence.replace('{m}',s.idle.minutes).replace('{s}',s.idle.left);}
 };
 </script></body></html>`;
 
@@ -131,7 +134,7 @@ export class RecorderOverlay {
 			alwaysOnTop: true,
 			focusable: false,
 			show: false,
-			title: 'Dictée',
+			title: 'Muesli',
 			webPreferences: { nodeIntegration: false, contextIsolation: true, backgroundThrottling: false },
 		});
 		this.win = win;

@@ -1,19 +1,12 @@
 import { App, Platform, PluginSettingTab, Setting } from 'obsidian';
-import type DicteePlugin from './main';
+import type MuesliPlugin from './main';
 import { checkKey } from './openrouter';
 import { listMicrophones } from './recorder/sources';
 import { VOICE_MEMOS_DIR } from './recorder/voice-memos';
+import { t as L } from './i18n';
 
-export const LANGUAGES: Record<string, string> = {
-	'': 'Détection automatique',
-	fr: 'Français',
-	en: 'Anglais',
-	es: 'Espagnol',
-	de: 'Allemand',
-	it: 'Italien',
-	pt: 'Portugais',
-	nl: 'Néerlandais',
-};
+/** Transcription languages (ISO code → name), '' = auto-detect. */
+export const LANGUAGES: Record<string, string> = L.languages;
 
 export type MeetingMode = 'call' | 'room';
 
@@ -61,25 +54,23 @@ export interface MeetingSettings {
 	voiceMemosSince: string;
 	/** File names already handled. */
 	voiceMemosSeen: string[];
-	/** A memo at least this long (min) is a meeting, shorter ones go to the journal (0 = never by length). */
-	meetingMinMinutes: number;
 }
 
 export const DEFAULT_SETTINGS: MeetingSettings = {
 	sttModel: 'microsoft/mai-transcribe-2',
 	llmModel: 'anthropic/claude-haiku-5.5',
-	rootFolder: 'Réunions',
-	templatesFolder: 'Réunions/Modèles',
+	rootFolder: L.defaults.rootFolder,
+	templatesFolder: L.defaults.templatesFolder,
 	language: '',
-	summaryLanguage: 'français',
-	myName: 'Moi',
+	summaryLanguage: L.defaults.summaryLanguage,
+	myName: L.me,
 	micDevice: '',
 	defaultMode: 'call',
 	keepAudio: true,
 	askSpeakerNames: true,
 	chunkMinutes: 8,
 	lastTemplate: '',
-	defaultTemplate: 'Général',
+	defaultTemplate: L.defaults.defaultTemplate,
 	overlay: true,
 	overlayHidden: true,
 	overlayPos: null,
@@ -87,21 +78,20 @@ export const DEFAULT_SETTINGS: MeetingSettings = {
 	idleGraceMinutes: 5,
 	maxMinutes: 180,
 	sttPricePerMinute: 0.0017,
-	importFolder: 'Réunions/À importer',
-	voiceFolder: 'JOURNAL/Notes vocales',
-	dailyNoteFormat: '[JOURNAL]/YYYY/[Journalier]/YYYY.MM.DD',
+	importFolder: L.defaults.importFolder,
+	voiceFolder: L.defaults.voiceFolder,
+	dailyNoteFormat: '',
 	lastKind: 'voice',
 	voiceMemos: false,
 	voiceMemosDir: VOICE_MEMOS_DIR,
 	voiceMemosSince: '',
 	voiceMemosSeen: [],
-	meetingMinMinutes: 15,
 };
 
 export class MeetingSettingTab extends PluginSettingTab {
 	constructor(
 		app: App,
-		private plugin: DicteePlugin,
+		private plugin: MuesliPlugin,
 	) {
 		super(app, plugin);
 	}
@@ -113,8 +103,8 @@ export class MeetingSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		const key = new Setting(containerEl)
-			.setName('Clé API OpenRouter')
-			.setDesc('Stockée dans le trousseau d’Obsidian, jamais dans le coffre.');
+			.setName(L.s.apiKey)
+			.setDesc(L.s.apiKeyDesc);
 		const status = key.descEl.createDiv({ cls: 'mn-key-status' });
 		const showStatus = (state: 'ok' | 'error' | 'pending' | 'none', text: string) => {
 			status.setText(text);
@@ -123,16 +113,16 @@ export class MeetingSettingTab extends PluginSettingTab {
 		let run = 0;
 		const verify = async (value: string, saveIfValid: boolean) => {
 			const id = ++run;
-			showStatus('pending', 'Vérification de la clé…');
+			showStatus('pending', L.s.checking);
 			const res = await checkKey(value);
 			if (id !== run) return; // a newer check superseded this one
 			if (res.ok && saveIfValid) this.plugin.setApiKey(value);
-			showStatus(res.ok ? 'ok' : 'error', (res.ok ? '✓ ' : '✗ ') + res.message + (!res.ok && saveIfValid ? ' Clé non enregistrée.' : ''));
+			showStatus(res.ok ? 'ok' : 'error', (res.ok ? '✓ ' : '✗ ') + res.message + (!res.ok && saveIfValid ? L.s.notSaved : ''));
 		};
 		let timer = 0;
 		key.addText((t) => {
 			t.inputEl.type = 'password';
-			t.setPlaceholder(this.plugin.apiKey() ? '•••••••••••• (enregistrée)' : 'sk-or-v1-…').onChange((v) => {
+			t.setPlaceholder(this.plugin.apiKey() ? L.s.saved : 'sk-or-v1-…').onChange((v) => {
 				window.clearTimeout(timer);
 				const value = v.trim();
 				if (!value) return;
@@ -142,49 +132,49 @@ export class MeetingSettingTab extends PluginSettingTab {
 		key.addExtraButton((b) =>
 			b
 				.setIcon('refresh-cw')
-				.setTooltip('Vérifier la clé enregistrée')
+				.setTooltip(L.s.verify)
 				.onClick(() => {
 					const stored = this.plugin.apiKey();
 					if (stored) void verify(stored, false);
-					else showStatus('none', 'Aucune clé enregistrée.');
+					else showStatus('none', L.s.noKey);
 				}),
 		);
 		const stored = this.plugin.apiKey();
 		if (stored) void verify(stored, false);
-		else showStatus('none', 'Aucune clé enregistrée — colle ta clé sk-or-….');
+		else showStatus('none', L.s.noKeyPaste);
 
-		new Setting(containerEl).setName('Ton nom').setDesc('Utilisé pour ta voix (micro) dans le transcript.').addText((t) =>
+		new Setting(containerEl).setName(L.s.yourName).setDesc(L.s.yourNameDesc).addText((t) =>
 			t.setValue(s.myName).onChange(async (v) => {
-				s.myName = v.trim() || 'Moi';
+				s.myName = v.trim() || L.me;
 				await save();
 			}),
 		);
 
-		new Setting(containerEl).setName('Enregistrement').setHeading();
+		new Setting(containerEl).setName(L.s.recording).setHeading();
 
-		new Setting(containerEl).setName('Micro').addDropdown((d) => {
-			d.addOption('', 'Micro par défaut du système');
-			if (s.micDevice) d.addOption(s.micDevice, 'Micro choisi');
+		new Setting(containerEl).setName(L.s.mic).addDropdown((d) => {
+			d.addOption('', L.s.micDefault);
+			if (s.micDevice) d.addOption(s.micDevice, L.s.micChosen);
 			d.setValue(s.micDevice).onChange(async (v) => {
 				s.micDevice = v;
 				await save();
 			});
 			void listMicrophones().then((devices) => {
 				d.selectEl.empty();
-				d.addOption('', 'Micro par défaut du système');
+				d.addOption('', L.s.micDefault);
 				for (const dev of devices) {
-					if (dev.deviceId && dev.deviceId !== 'default') d.addOption(dev.deviceId, dev.label || 'Micro sans nom');
+					if (dev.deviceId && dev.deviceId !== 'default') d.addOption(dev.deviceId, dev.label || L.s.micUnnamed);
 				}
 				d.setValue(devices.some((x) => x.deviceId === s.micDevice) ? s.micDevice : '');
 			});
 		});
 
 		new Setting(containerEl)
-			.setName('Type de réunion par défaut')
-			.setDesc('Visio : ton micro + le son de l’ordinateur (les autres). Présentiel : seulement le micro, toutes les voix sont séparées.')
+			.setName(L.s.mode)
+			.setDesc(L.s.modeDesc)
 			.addDropdown((d) =>
 				d
-					.addOptions({ call: 'Visio / appel', room: 'Présentiel' })
+					.addOptions({ call: L.s.modeCall, room: L.s.modeRoom })
 					.setValue(s.defaultMode)
 					.onChange(async (v) => {
 						s.defaultMode = v as 'call' | 'room';
@@ -193,8 +183,8 @@ export class MeetingSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName('Modèle de résumé par défaut')
-			.setDesc('Utilisé à chaque nouvelle réunion. Les modèles sont les notes du dossier des modèles.')
+			.setName(L.s.template)
+			.setDesc(L.s.templateDesc)
 			.addDropdown((d) => {
 				void this.plugin.templateNames().then((names) => {
 					for (const n of names) d.addOption(n, n);
@@ -207,8 +197,8 @@ export class MeetingSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
-			.setName('Garder l’audio')
-			.setDesc('Enregistre audio.mp3 dans le dossier de la réunion.')
+			.setName(L.s.keepAudio)
+			.setDesc(L.s.keepAudioDesc)
 			.addToggle((t) =>
 				t.setValue(s.keepAudio).onChange(async (v) => {
 					s.keepAudio = v;
@@ -217,8 +207,8 @@ export class MeetingSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName('Durée des segments (min)')
-			.setDesc('Les segments sont transcrits pendant la réunion, coupés dans un silence. Max 12 (limite de la diarisation).')
+			.setName(L.s.chunk)
+			.setDesc(L.s.chunkDesc)
 			.addSlider((sl) =>
 				sl
 					.setLimits(2, 12, 1)
@@ -231,12 +221,10 @@ export class MeetingSettingTab extends PluginSettingTab {
 			);
 
 		if (Platform.isDesktopApp && Platform.isMacOS) {
-			new Setting(containerEl).setName('Mémos Dictaphone (iPhone)').setHeading();
+			new Setting(containerEl).setName(L.s.memos).setHeading();
 			new Setting(containerEl)
-				.setName('Traiter les nouveaux mémos automatiquement')
-				.setDesc(
-					'Enregistre avec Dictaphone sur l’iPhone (écran verrouillé, pause…) : chaque nouveau mémo synchronisé par iCloud est transcrit, reconnu comme réunion ou journal d’après ce qui est dit, et rangé, toutes les 2 minutes tant qu’Obsidian est ouvert. Seuls les mémos à partir du jour de l’activation sont pris, pas l’historique. Obsidian a besoin de l’accès complet au disque.',
-				)
+				.setName(L.s.memosToggle)
+				.setDesc(L.s.memosDesc)
 				.addToggle((t) =>
 					t.setValue(s.voiceMemos).onChange(async (v) => {
 						s.voiceMemos = v;
@@ -248,11 +236,11 @@ export class MeetingSettingTab extends PluginSettingTab {
 				);
 		}
 
-		new Setting(containerEl).setName('Overlay').setHeading();
+		new Setting(containerEl).setName(L.s.overlay).setHeading();
 
 		new Setting(containerEl)
-			.setName('Overlay flottant')
-			.setDesc('Une petite pilule toujours visible, au-dessus de toutes les applications, pendant l’enregistrement.')
+			.setName(L.s.overlayToggle)
+			.setDesc(L.s.overlayDesc)
 			.addToggle((t) =>
 				t.setValue(s.overlay).onChange(async (v) => {
 					s.overlay = v;
@@ -260,8 +248,8 @@ export class MeetingSettingTab extends PluginSettingTab {
 				}),
 			);
 		new Setting(containerEl)
-			.setName('Invisible dans les partages d’écran')
-			.setDesc('L’overlay n’apparaît ni dans Zoom/Meet/Teams ni dans les captures d’écran.')
+			.setName(L.s.overlayHidden)
+			.setDesc(L.s.overlayHiddenDesc)
 			.addToggle((t) =>
 				t.setValue(s.overlayHidden).onChange(async (v) => {
 					s.overlayHidden = v;
@@ -269,7 +257,7 @@ export class MeetingSettingTab extends PluginSettingTab {
 				}),
 			);
 
-		new Setting(containerEl).setName('Garde-fous').setHeading();
+		new Setting(containerEl).setName(L.s.guards).setHeading();
 
 		const minutes = (name: string, desc: string, key: 'idleMinutes' | 'idleGraceMinutes' | 'maxMinutes', fallback: number) =>
 			new Setting(containerEl)
@@ -284,22 +272,12 @@ export class MeetingSettingTab extends PluginSettingTab {
 						await save();
 					});
 				});
-		minutes(
-			'Demander après N minutes sans parole',
-			'Personne ne parle depuis ce temps : l’overlay demande si la réunion continue. 0 = jamais.',
-			'idleMinutes',
-			DEFAULT_SETTINGS.idleMinutes,
-		);
-		minutes(
-			'Arrêt automatique après N minutes sans réponse',
-			'Sans réponse à la question, l’enregistrement se termine tout seul et le compte rendu est généré.',
-			'idleGraceMinutes',
-			DEFAULT_SETTINGS.idleGraceMinutes,
-		);
-		minutes('Durée maximale (min)', 'L’enregistrement s’arrête de lui-même au-delà. 0 = sans limite.', 'maxMinutes', DEFAULT_SETTINGS.maxMinutes);
+		minutes(L.s.idle, L.s.idleDesc, 'idleMinutes', DEFAULT_SETTINGS.idleMinutes);
+		minutes(L.s.grace, L.s.graceDesc, 'idleGraceMinutes', DEFAULT_SETTINGS.idleGraceMinutes);
+		minutes(L.s.max, L.s.maxDesc, 'maxMinutes', DEFAULT_SETTINGS.maxMinutes);
 		new Setting(containerEl)
-			.setName('Prix de la transcription ($ / min envoyée)')
-			.setDesc('Sert à l’estimation affichée pendant la réunion. Le coût réel est affiché à la fin.')
+			.setName(L.s.price)
+			.setDesc(L.s.priceDesc)
 			.addText((t) => {
 				t.inputEl.type = 'number';
 				t.inputEl.step = '0.0001';
@@ -310,11 +288,11 @@ export class MeetingSettingTab extends PluginSettingTab {
 				});
 			});
 
-		new Setting(containerEl).setName('Transcription et résumé').setHeading();
+		new Setting(containerEl).setName(L.s.ai).setHeading();
 
 		new Setting(containerEl)
-			.setName('Langue par défaut')
-			.setDesc('Détection automatique par défaut.')
+			.setName(L.s.lang)
+			.setDesc(L.s.langDesc)
 			.addDropdown((d) =>
 				d
 					.addOptions(LANGUAGES)
@@ -325,44 +303,44 @@ export class MeetingSettingTab extends PluginSettingTab {
 					}),
 			);
 
-		new Setting(containerEl).setName('Langue du résumé').addText((t) =>
+		new Setting(containerEl).setName(L.s.summaryLang).addText((t) =>
 			t.setValue(s.summaryLanguage).onChange(async (v) => {
-				s.summaryLanguage = v.trim() || 'français';
+				s.summaryLanguage = v.trim() || DEFAULT_SETTINGS.summaryLanguage;
 				await save();
 			}),
 		);
 
-		new Setting(containerEl).setName('Demander les noms des intervenants').addToggle((t) =>
+		new Setting(containerEl).setName(L.s.askNames).addToggle((t) =>
 			t.setValue(s.askSpeakerNames).onChange(async (v) => {
 				s.askSpeakerNames = v;
 				await save();
 			}),
 		);
 
-		new Setting(containerEl).setName('Modèle de transcription').addText((t) =>
+		new Setting(containerEl).setName(L.s.sttModel).addText((t) =>
 			t.setValue(s.sttModel).onChange(async (v) => {
 				s.sttModel = v.trim() || DEFAULT_SETTINGS.sttModel;
 				await save();
 			}),
 		);
-		new Setting(containerEl).setName('Modèle de langage').addText((t) =>
+		new Setting(containerEl).setName(L.s.llmModel).addText((t) =>
 			t.setValue(s.llmModel).onChange(async (v) => {
 				s.llmModel = v.trim() || DEFAULT_SETTINGS.llmModel;
 				await save();
 			}),
 		);
 
-		new Setting(containerEl).setName('Dossiers').setHeading();
+		new Setting(containerEl).setName(L.s.folders).setHeading();
 
-		new Setting(containerEl).setName('Dossier des réunions').addText((t) =>
+		new Setting(containerEl).setName(L.s.rootFolder).addText((t) =>
 			t.setValue(s.rootFolder).onChange(async (v) => {
-				s.rootFolder = v.trim().replace(/\/+$/, '') || 'Réunions';
+				s.rootFolder = v.trim().replace(/\/+$/, '') || DEFAULT_SETTINGS.rootFolder;
 				await save();
 			}),
 		);
 		new Setting(containerEl)
-			.setName('Dossier d’import')
-			.setDesc('Un fichier audio déposé ici (AirDrop, iCloud…) est proposé à l’import automatiquement.')
+			.setName(L.s.importFolder)
+			.setDesc(L.s.importFolderDesc)
 			.addText((t) =>
 				t.setValue(s.importFolder).onChange(async (v) => {
 					s.importFolder = v.trim().replace(/\/+$/, '');
@@ -370,8 +348,8 @@ export class MeetingSettingTab extends PluginSettingTab {
 				}),
 			);
 		new Setting(containerEl)
-			.setName('Dossier des notes vocales')
-			.setDesc('Audio et transcript de chaque note vocale. Le résumé va dans la note du jour.')
+			.setName(L.s.voiceFolder)
+			.setDesc(L.s.voiceFolderDesc)
 			.addText((t) =>
 				t.setValue(s.voiceFolder).onChange(async (v) => {
 					s.voiceFolder = v.trim().replace(/\/+$/, '') || DEFAULT_SETTINGS.voiceFolder;
@@ -379,8 +357,8 @@ export class MeetingSettingTab extends PluginSettingTab {
 				}),
 			);
 		new Setting(containerEl)
-			.setName('Note du jour')
-			.setDesc('Vide : réglages du plugin « Notes quotidiennes ». Sinon un chemin au format Moment, ex. [JOURNAL]/YYYY/[Journalier]/YYYY.MM.DD')
+			.setName(L.s.daily)
+			.setDesc(L.s.dailyDesc)
 			.addText((t) =>
 				t.setValue(s.dailyNoteFormat).onChange(async (v) => {
 					s.dailyNoteFormat = v.trim().replace(/\.md$/, '');
@@ -388,8 +366,8 @@ export class MeetingSettingTab extends PluginSettingTab {
 				}),
 			);
 		new Setting(containerEl)
-			.setName('Dossier des modèles de résumé')
-			.setDesc('Chaque note Markdown est un modèle : son contenu décrit le résumé voulu.')
+			.setName(L.s.templatesFolder)
+			.setDesc(L.s.templatesFolderDesc)
 			.addText((t) =>
 				t.setValue(s.templatesFolder).onChange(async (v) => {
 					s.templatesFolder = v.trim().replace(/\/+$/, '');

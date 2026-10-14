@@ -9,10 +9,10 @@ for arch in arm64 x86_64; do
 		-Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker macos/Info.plist
 done
 lipo -create build/meeting-tap-arm64 build/meeting-tap-x86_64 -output bin/meeting-tap
-codesign --force --sign - --identifier io.github.azilone.meeting-notes.tap bin/meeting-tap
+codesign --force --sign - --identifier io.github.azilone.muesli.tap bin/meeting-tap
 ls -lh bin/meeting-tap
 if [ -n "$VAULT" ]; then
-	dest="$VAULT/.obsidian/plugins/dictee"
+	dest="$VAULT/.obsidian/plugins/muesli"
 	mkdir -p "$dest"
 	cp bin/meeting-tap "$dest/meeting-tap"
 	echo "Copied to $dest"

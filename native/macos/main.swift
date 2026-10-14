@@ -95,21 +95,21 @@ func decodeFile(_ path: String) -> Never {
 	}
 	guard let outFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: OUT_RATE, channels: 1, interleaved: true),
 		let converter = AVAudioConverter(from: file.processingFormat, to: outFormat)
-	else { fail("Format audio non pris en charge") }
+	else { fail("Unsupported audio format") }
 	converter.downmix = true
 	let total = file.length
 	emit(["event": "started", "sampleRate": Int(OUT_RATE), "channels": 1, "format": "s16le",
 		"sourceRate": file.processingFormat.sampleRate, "sourceChannels": Int(file.processingFormat.channelCount),
 		"frames": Int(total)])
 	let inCap: AVAudioFrameCount = 65536
-	guard let inBuf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: inCap) else { fail("Mémoire insuffisante") }
+	guard let inBuf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: inCap) else { fail("Out of memory") }
 	let outCap = AVAudioFrameCount(Double(inCap) * OUT_RATE / file.processingFormat.sampleRate) + 4096
 	let stdout = FileHandle.standardOutput
 	var eof = false
 	var readError: Error?
 	var lastReport = 0.0
 	while !eof {
-		guard let outBuf = AVAudioPCMBuffer(pcmFormat: outFormat, frameCapacity: outCap) else { fail("Mémoire insuffisante") }
+		guard let outBuf = AVAudioPCMBuffer(pcmFormat: outFormat, frameCapacity: outCap) else { fail("Out of memory") }
 		var convError: NSError?
 		let status = converter.convert(to: outBuf, error: &convError) { _, outStatus in
 			if eof { outStatus.pointee = .endOfStream; return nil }
@@ -135,8 +135,8 @@ func decodeFile(_ path: String) -> Never {
 			outStatus.pointee = .haveData
 			return inBuf
 		}
-		if let e = readError { fail("Lecture impossible : \(e.localizedDescription)") }
-		if status == .error { fail("Conversion impossible : \(convError?.localizedDescription ?? "?")") }
+		if let e = readError { fail("Cannot read the file: \(e.localizedDescription)") }
+		if status == .error { fail("Cannot convert the audio: \(convError?.localizedDescription ?? "?")") }
 		if outBuf.frameLength > 0, let data = outBuf.int16ChannelData {
 			stdout.write(Data(bytes: data[0], count: Int(outBuf.frameLength) * 2))
 		}
@@ -163,9 +163,9 @@ func decodeAsset(_ url: URL) -> Never {
 		sem.signal()
 	}
 	sem.wait()
-	guard !tracks.isEmpty else { fail("Aucune piste audio dans le fichier") }
+	guard !tracks.isEmpty else { fail("No audio track in the file") }
 	let reader: AVAssetReader
-	do { reader = try AVAssetReader(asset: asset) } catch { fail("Impossible d'ouvrir le fichier audio : \(error.localizedDescription)") }
+	do { reader = try AVAssetReader(asset: asset) } catch { fail("Cannot open the audio file: \(error.localizedDescription)") }
 	let output = AVAssetReaderAudioMixOutput(audioTracks: tracks, audioSettings: [
 		AVFormatIDKey: kAudioFormatLinearPCM,
 		AVSampleRateKey: OUT_RATE,
@@ -175,9 +175,9 @@ func decodeAsset(_ url: URL) -> Never {
 		AVLinearPCMIsBigEndianKey: false,
 		AVLinearPCMIsNonInterleaved: false,
 	])
-	guard reader.canAdd(output) else { fail("Format audio non pris en charge") }
+	guard reader.canAdd(output) else { fail("Unsupported audio format") }
 	reader.add(output)
-	guard reader.startReading() else { fail("Lecture impossible : \(reader.error?.localizedDescription ?? "?")") }
+	guard reader.startReading() else { fail("Cannot read the file: \(reader.error?.localizedDescription ?? "?")") }
 	emit(["event": "started", "sampleRate": Int(OUT_RATE), "channels": 1, "format": "s16le", "frames": Int(duration * OUT_RATE)])
 	let stdout = FileHandle.standardOutput
 	var written = 0.0
@@ -195,7 +195,7 @@ func decodeAsset(_ url: URL) -> Never {
 			emit(["event": "progress", "ratio": ratio])
 		}
 	}
-	if reader.status == .failed { fail("Lecture impossible : \(reader.error?.localizedDescription ?? "?")") }
+	if reader.status == .failed { fail("Cannot read the file: \(reader.error?.localizedDescription ?? "?")") }
 	emit(["event": "progress", "ratio": 1])
 	emit(["event": "done"])
 	exit(0)
@@ -215,7 +215,7 @@ guard #available(macOS 14.4, *) else { fail("macOS 14.4 or later is required for
 
 let tapDesc = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
 tapDesc.uuid = UUID()
-tapDesc.name = "Meeting Notes tap"
+tapDesc.name = "Muesli tap"
 tapDesc.isPrivate = true
 tapDesc.muteBehavior = .unmuted
 
@@ -225,7 +225,7 @@ if st != noErr { fail("Cannot create process tap (permission denied?)", st) }
 
 let outputUID = defaultOutputUID()
 let aggDesc: [String: Any] = [
-	kAudioAggregateDeviceNameKey: "Meeting Notes capture",
+	kAudioAggregateDeviceNameKey: "Muesli capture",
 	kAudioAggregateDeviceUIDKey: UUID().uuidString,
 	kAudioAggregateDeviceMainSubDeviceKey: outputUID,
 	kAudioAggregateDeviceIsPrivateKey: true,

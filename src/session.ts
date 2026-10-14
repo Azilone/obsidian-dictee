@@ -11,6 +11,7 @@ import type { SttResult } from './pipeline/merge';
 import { MicSource, ScreenLock, SystemSource, type AudioSource } from './recorder/sources';
 import { SAMPLE_RATE, Track, type ChunkMeta, type ChunkSink, type TrackId } from './recorder/track';
 import type { MeetingMode, MeetingSettings } from './settings';
+import { t } from './i18n';
 
 export interface ChunkState extends ChunkMeta {
 	status: 'pending' | 'done' | 'error';
@@ -113,7 +114,7 @@ export class TranscriptionQueue {
 			} catch (e) {
 				chunk.status = 'error';
 				chunk.error = (e as Error).message;
-				console.error('[dictee] transcription failed', name, e);
+				console.error('[muesli] transcription failed', name, e);
 			}
 			await saveState(this.app, this.state);
 			this.onProgress?.();
@@ -369,7 +370,7 @@ export class RecordingSession {
 		if (ids.includes('system')) {
 			const sys = new SystemSource(this.helperPath, feed('system'), (msg) => {
 				this.systemError = msg;
-				new Notice(`Dictée : ${msg}. L’enregistrement continue avec le micro seul.`);
+				new Notice(t.systemAudioStopped(msg));
 				this.onChange?.();
 			});
 			try {
@@ -379,10 +380,7 @@ export class RecordingSession {
 				this.systemError = (e as Error).message;
 				delete this.tracks.system;
 				this.archive = s.keepAudio ? new AudioArchive(this.app, rawPath(this.state.folder, 'audio.mp3'), ['mic']) : null;
-				new Notice(
-					`Son de l’ordinateur indisponible (${this.systemError}). Enregistrement du micro seul — les autres participants ne seront entendus que via tes haut-parleurs.`,
-					10000,
-				);
+				new Notice(t.systemAudioUnavailable(this.systemError), 10000);
 			}
 		}
 		this.pumpTimer = window.setInterval(() => void this.archive?.pump(), 5000);
@@ -394,7 +392,7 @@ export class RecordingSession {
 		try {
 			await this.mic?.revive();
 		} catch (e) {
-			new Notice(`Micro indisponible : ${(e as Error).message}`);
+			new Notice(t.micUnavailable((e as Error).message));
 		}
 	}
 

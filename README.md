@@ -1,135 +1,161 @@
 <div align="center">
 
-# Dictée for Obsidian
+<img src="assets/logo.png" width="112" alt="Muesli logo">
 
-**Record by voice, in your vault. Two uses: meetings (a clean "who said what" transcript and an AI summary) and journaling (spoken entries turned into bullets in your daily note).**
+# Muesli for Obsidian
 
-No bot joins your call. No new app. Your notes stay plain Markdown.
+**Granola, in Obsidian. The AI notepad for back-to-back meetings.**
 
-*The interface and default prompts are in French for now.*
+Notes, actions and memory, directly in your vault. **Without a meeting bot.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Obsidian](https://img.shields.io/badge/Obsidian-%E2%89%A5%201.11.4-7c3aed)
-![Desktop](https://img.shields.io/badge/desktop-macOS%2014.4%2B-lightgrey)
+![Calls](https://img.shields.io/badge/calls-macOS%2014.4%2B-lightgrey)
+![Mobile](https://img.shields.io/badge/mobile-in%20person%20%26%20journal-success)
+
+**English** · [Français](README.fr.md)
+
+[Install](#install) · [Setup](#setup) · [How it works](#how-it-works) · [Privacy](#privacy-and-disclosures)
 
 </div>
 
 ---
 
-## Two uses
+## Why Muesli?
 
-| | **Réunion** | **Journal** |
-|---|---|---|
-| For | Calls on your Mac (mic + system audio) or in-person meetings | Journaling out loud: tasks, plans, ideas, mood |
-| Result | `Réunions/<date> <title>/` with summary, transcript, notes, audio | A bullet-journal entry appended to today's daily note; audio and transcript in `JOURNAL/Notes vocales/` |
+You jump from call to call. You want to listen, jot three words, and walk out with clean notes and a task list. Not a bot in the participant list, not another app, not your notes locked in someone else's cloud.
 
-Starting is one click: the ribbon icon (or command / hotkey) asks only **Réunion** or **Journal**. Everything else comes from the settings (meeting type, language, summary template), and the meeting's title is chosen by the LLM once the summary is written.
+- **No bot joins your call.** Muesli records your microphone and your Mac's audio output, so it works with Zoom, Meet, Teams, Slack, a phone call in the browser — anything that plays sound.
+- **Your notes come first.** Type a few words while people talk. The summary is built *around* them, filled in with what was actually said.
+- **Actions you can track.** Tasks come out as `- [ ] Paul — send the recap (Friday)`, ready for Tasks, Dataview and Bases.
+- **Memory that stays yours.** Every meeting is a folder of plain Markdown in your vault: searchable, linkable to people and projects, synced however you already sync.
+- **Bring your own key.** One [OpenRouter](https://openrouter.ai) key, pay per use (about **$0.10 per hour** of speech). No subscription, no account with us.
 
-## Meetings
+## What you get
 
-1. **Start recording at any time** — ribbon icon, command palette or a hotkey, then pick **Réunion**.
-2. **Write your notes** in `Notes.md`, which opens for you. Every line is timestamped silently, and *Mark this moment* drops a `⏱ 12:34` marker.
-3. **Stop** — from the status bar, the note header or a command. Audio is transcribed in the background *during* the meeting, so the result is ready seconds after you stop.
-4. **Name the speakers** — the plugin suggests names it heard in the conversation ("thanks Paul…"); you confirm or fix them.
-5. **Never forget to stop** — a small always-on-top pill shows the recording, the elapsed time and the estimated cost over every app, and stays **out of screen shares and screenshots**. After a long silence the plugin asks whether the meeting is still on, and ends it by itself if nobody answers.
-6. **Get a tidy folder**:
+Click the 🎙️ ribbon icon, pick **Meeting**, and write in the `Notes.md` that opens. Click stop. A few seconds later:
 
 ```
-Réunions/2026-10-09 1430 Product sync/
-  Résumé.md       ← AI summary: TL;DR, decisions, tasks, topics, open questions
-  Transcript.md   ← cleaned-up transcript, speaker by speaker, with timestamps
+Meetings/2026-10-09 1430 Pricing review with Acme/
+  Summary.md      ← TL;DR, decisions, actions, topics, open questions
+  Transcript.md   ← cleaned-up "who said what", with timestamps
   Notes.md        ← your raw notes, untouched
   audio.mp3       ← optional recording
 ```
 
-Tasks come out as `- [ ] Paul — send the recap (Friday)`, so they work with Tasks, Dataview and Bases.
+The title is chosen by the AI from the content. Speakers are named from the conversation ("thanks Paul…"), and you confirm or fix them in one dialog.
+
+## Two uses
+
+| | **Meeting** | **Journal** |
+|---|---|---|
+| For | Calls on your Mac (mic + system audio), in-person meetings, any recording | Thinking out loud: tasks, plans, ideas, mood |
+| Result | A meeting folder with summary, transcript, notes and audio | A bullet-journal entry appended to today's daily note; audio and transcript in `Voice notes/` |
+
+### During a meeting
+
+- **Notes with timestamps.** Every line you type is silently timestamped, and *Mark this moment* drops a `⏱ 12:34` marker. The summary uses both to align your notes with the conversation.
+- **Never forget to stop.** A small always-on-top pill shows the recording, the elapsed time and the estimated cost over every app, and stays **out of screen shares and screenshots**. After a long silence Muesli asks whether the meeting is still on, and ends it by itself if nobody answers.
+- **Ready when you stop.** Audio is transcribed in the background *during* the meeting, so the result arrives seconds after you click stop.
 
 ### Recorded elsewhere? Import it
 
-A voice memo from your phone, a `.m4a` from a dictaphone, a `.mp3` someone sent you: drop it in `Réunions/À importer` (AirDrop, iCloud Drive, Finder) or right-click any audio file in the vault → **Créer une réunion depuis cet audio**, or use the *Importer un enregistrement audio* command to pick a file anywhere on disk. The audio goes through the same silence removal, diarization and summary as a live recording, and the result is the same folder (with the original audio kept next to it).
+A voice memo from your phone, an `.m4a` from a dictaphone, an `.mp3` someone sent you: drop it in `Meetings/Inbox` (AirDrop, iCloud Drive, Finder), right-click any audio file in the vault → **Create a meeting from this audio**, or run *Import an audio recording* to pick a file anywhere on disk. You get the same folder, with the original audio kept.
 
-### On your phone: journal and in-person meetings
+### iPhone Voice Memos, processed on your Mac
 
-Tap the mic icon to open the **recorder**: pick **Voice note** (journal) or **Meeting**, then one big button to record, pause and stop.
+Turn on *Process new memos automatically* (macOS): every new Voice Memo synced by iCloud is transcribed, recognized as a meeting or a journal entry from what is said, and filed — while Obsidian is open. Record with the screen locked, find it in your vault. Needs Full Disk Access for Obsidian.
 
-- **Voice note**: journal out loud. The audio and transcript go to `JOURNAL/Notes vocales/`, and a short bullet-journal entry (tasks, plans, notes, mood) is appended to today's daily note (path from the core Daily notes plugin, or set your own).
-- **Meeting**: in-person, microphone only, same folder as on desktop.
+### On your phone
 
-iOS cuts the microphone of any app in the background or behind a locked screen, Obsidian included. The screen stays on while recording, and the mic is resumed when you come back (the lost time is shown). To record with the screen locked, use Voice Memos, then *Save to Files* into the import folder of your vault: it is offered for processing the next time Obsidian opens. The OpenRouter key is stored per device, so enter it on the phone too.
+Tap the mic icon to open the **recorder**: pick **Journal** or **Meeting** (in person, microphone only), then one big button. iOS cuts the microphone of any app in the background, so keep Obsidian in front while recording (the screen stays on). The OpenRouter key is stored per device: enter it on the phone too.
+
+## Install
+
+> Muesli is not in the community plugin directory yet.
+
+**With BRAT (recommended)**: install [BRAT](https://github.com/TfTHacker/obsidian42-brat), then *BRAT: Add a beta plugin* → `Azilone/obsidian-muesli`. Enable **Muesli** in *Settings → Community plugins*.
+
+**Manually**: download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/Azilone/obsidian-muesli/releases/latest) into `<your vault>/.obsidian/plugins/muesli/`, then enable **Muesli**.
+
+**From source**: see [CONTRIBUTING.md](CONTRIBUTING.md#development).
+
+### Requirements
+
+| | Calls (mic + system audio) | In person, journal, import |
+|---|---|---|
+| macOS 14.4+ | ✅ | ✅ |
+| Windows, Linux | — (mic only for now) | ✅ |
+| iOS, Android | — | ✅ (recorder screen) |
+
+Obsidian 1.11.4 or later, and an [OpenRouter API key](https://openrouter.ai/keys) with a few dollars of credit.
+
+## Setup
+
+1. **Settings → Muesli → OpenRouter API key**: paste your key. It is checked right away, the remaining credit is shown, and it is saved in Obsidian's secret storage (never in your vault or in `data.json`).
+2. **Your name**: used for your microphone in transcripts.
+3. **First call on a Mac**: Muesli downloads its small audio helper (see [disclosures](#privacy-and-disclosures)), then macOS asks to allow **Muesli** to record the computer's audio. Accept, or the other participants won't be captured. You can change it later in *System Settings → Privacy & Security → Screen & System Audio Recording*. macOS may ask again after an update.
+4. Optional: **Default meeting type** (call or in person), **default summary template**, **summary language**, and the folders.
+
+That's it: ribbon icon → **Meeting** → write → stop.
+
+## Summary templates
+
+Templates are plain notes in `Meetings/Templates`. A template's content describes the summary you want, in your own words. Two are created for you, **General** and **1:1**. Duplicate one, rewrite its sections (a sales call, a standup, an interview…) and pick it as the default in the settings.
+
+## Language
+
+The interface, the default folders, the templates and the AI prompts follow Obsidian's language: **French** if Obsidian is in French, **English** otherwise. Transcription auto-detects the spoken language (or set it), and the summary is written in the *Summary language* setting, whatever the meeting language.
 
 ## How it works
 
 | Piece | What it does |
 |---|---|
 | **Microphone** | Captured with Web Audio. In a call, it is *you*, so you are always attributed correctly. |
-| **System audio** | A tiny native helper (`meeting-tap`, ~190 KB, Swift) taps the Mac's audio output through Core Audio process taps. This is how the other participants are heard without a bot or a virtual audio driver. |
+| **System audio** | A tiny native helper (`meeting-tap`, Swift, ~270 KB) taps the Mac's audio output through Core Audio process taps. This is how the other participants are heard without a bot or a virtual audio driver. |
 | **Silence removal** | An on-device voice detector strips silences before anything is uploaded (transcription is billed per second). Chunks are cut *inside* silences, so no word is split, and timestamps are mapped back to the real meeting clock. Chunks with no speech are never sent. |
-| **Transcription** | [`microsoft/mai-transcribe-2`](https://openrouter.ai/microsoft/mai-transcribe-2) through OpenRouter, with speaker diarization. Chunks stay under the diarization length limit. |
-| **Clean-up and summary** | A small LLM (`anthropic/claude-haiku-5.5` by default) matches speakers across chunks, fixes recognition errors, removes filler words, and writes the summary. Your notes are treated as the most important input. |
+| **Transcription** | [`microsoft/mai-transcribe-2`](https://openrouter.ai/microsoft/mai-transcribe-2) through OpenRouter, with speaker diarization. |
+| **Clean-up and summary** | A small LLM (`anthropic/claude-haiku-5.5` by default, any OpenRouter model works) matches speakers across chunks, fixes recognition errors, removes filler words, writes the summary and picks a title. Your notes are treated as the most important input. |
 
-Everything is written to your vault first (`<meeting>/.raw/`), so a crash or a failed API call never loses a meeting. **Retraiter la réunion** (re-process: command or folder context menu) picks up where it stopped.
+Everything is written to your vault first (`<meeting>/.raw/`), so a crash or a failed API call never loses a meeting. **Re-process the meeting** (command, or right-click the folder) picks up where it stopped.
 
 ### Cost
 
-You pay OpenRouter directly (bring your own key). As a rough guide, transcription is about **$0.10 per hour of speech** after silence removal, plus a few cents of LLM per meeting.
-
-## Install
-
-> Not yet in the community plugin directory. Build from source:
-
-Requirements: macOS 14.4+, Obsidian 1.11.4+, [Bun](https://bun.sh), Xcode command line tools (`swiftc`).
-
-```bash
-git clone https://github.com/Azilone/obsidian-dictee.git
-cd obsidian-dictee
-bun install
-./native/build.sh
-VAULT="/path/to/your/vault" bun run build
-```
-
-Then in Obsidian: **Settings → Community plugins → enable Dictée**.
-
-### Setup
-
-1. **Settings → Dictée → OpenRouter API key**: paste your key. It is checked against OpenRouter, the remaining credit is shown, and it is saved in Obsidian's secret storage (never in your vault or in `data.json`).
-2. Set **your name** (used for your microphone).
-3. On the first recording, macOS asks to allow **system audio recording** for the plugin (the helper still appears as *Meeting Notes*). Accept it, or the other participants won't be captured.
-
-## Summary templates
-
-Templates are plain notes in `Réunions/Modèles` (configurable). The note's content describes the summary you want; two are created for you: **Général** and **1:1**. Duplicate one, rewrite the sections, and it can be chosen as the default summary template in the settings.
+You pay OpenRouter directly. As a rough guide: transcription is about **$0.10 per hour of speech** after silence removal, plus a few cents of LLM per meeting. The live estimate is shown in the overlay, the real cost when processing ends.
 
 ## Settings
 
 | Setting | Default |
 |---|---|
-| Meeting type | Call (mic + system audio) / In person (mic only, every voice diarized) |
-| Default summary template | `Général` |
+| Default meeting type | Call (mic + system audio) / In person (mic only, every voice diarized) |
+| Default summary template | `General` |
 | Language | Auto-detect |
-| Summary language | French |
-| Keep audio | On |
-| Chunk length | 8 min |
-| Floating overlay | On, hidden from screen capture |
-| Ask after N min of silence / auto-stop after | 10 min / 5 min |
+| Summary language | English (French if Obsidian is in French) |
+| Keep the audio | On |
+| Segment length | 8 min |
+| Floating overlay | On, hidden from screen sharing |
+| Ask after N min without speech / stop after | 10 min / 5 min |
 | Maximum duration | 180 min |
-| Import folder | `Réunions/À importer` |
-| Models | `microsoft/mai-transcribe-2`, `anthropic/claude-haiku-5.5` (any OpenRouter model works) |
-| Folders | `Réunions`, `Réunions/Modèles` |
+| Models | `microsoft/mai-transcribe-2`, `anthropic/claude-haiku-5.5` |
+| Folders | `Meetings`, `Meetings/Templates`, `Meetings/Inbox`, `Voice notes` |
+| Daily note | Core *Daily notes* settings, or your own Moment path |
 
-## Privacy
+## Privacy and disclosures
 
-- Audio and text go **only to OpenRouter** (and the model providers it routes to), with your own key. Nothing else leaves your machine.
-- Raw audio chunks and API responses stay in a hidden `.raw/` folder inside each meeting folder. Delete it once you're happy with the result.
-- Using git sync on your vault? You may want to add `**/.raw/` and `*.mp3` to `.gitignore`.
-- Always tell participants you are recording, and follow the consent laws where you live.
+- **Network**: audio and text are sent **only to [OpenRouter](https://openrouter.ai)** (and the model providers it routes to), with your own key. No telemetry, no analytics, no server of ours.
+- **Paid service**: OpenRouter is pay-per-use; you need an account and credit.
+- **Native helper (macOS)**: system audio capture and fast audio decoding use `meeting-tap`, a small open-source Swift program ([`native/macos/main.swift`](native/macos/main.swift)). Obsidian does not install extra files, so on first use Muesli downloads it from **this repository's GitHub release** matching the plugin version, and checks its SHA-256 against the one built into `main.js` before running it. Release files are built by GitHub Actions with [build provenance attestations](https://github.com/Azilone/obsidian-muesli/attestations). You can also build it yourself with `./native/build.sh`.
+- **Files outside the vault**: only when you import a file from disk, or with the optional Voice Memos inbox (reads `~/Library/Group Containers/group.com.apple.VoiceMemos.shared`, requires Full Disk Access).
+- Raw audio chunks and API responses stay in a hidden `.raw/` folder inside each meeting folder. Delete it once you're happy with the result. Syncing your vault with git? Consider adding `**/.raw/` and `*.mp3` to `.gitignore`.
+- **Always tell participants you are recording**, and follow the consent laws where you live.
 
 ## Development
 
 ```bash
 bun install
-bun test                         # VAD/chunking and merge logic
+bun run check                        # type-check + tests (VAD, chunking, merge, journal)
+./native/build.sh                    # universal (arm64 + x86_64) helper, ad-hoc signed
 VAULT="/path/to/vault" bun run dev   # watch mode, builds straight into the vault
-./native/build.sh                # universal (arm64 + x86_64) helper, ad-hoc signed
 ```
 
 Test the helper on its own:
@@ -139,30 +165,32 @@ Test the helper on its own:
 ffplay -f s16le -ar 16000 -ac 1 out.pcm
 ```
 
-The helper writes raw PCM (s16le, mono, 16 kHz) on stdout and JSON status lines on stderr, and exits when its stdin closes. `meeting-tap --decode file.m4a` streams any audio file in the same format (used for imports). Any helper that follows this contract can be added for Windows (WASAPI loopback) or Linux (PipeWire monitor).
+The helper writes raw PCM (s16le, mono, 16 kHz) on stdout and JSON status lines on stderr, and exits when its stdin closes. `meeting-tap --decode file.m4a` streams any audio file in the same format (used for imports). Any helper that follows this contract can be added for Windows (WASAPI loopback) or Linux (PipeWire monitor) — contributions welcome.
 
 ### Layout
 
 ```
 src/
   main.ts              plugin, commands, status bar, recovery
+  i18n.ts              every UI string, English and French
   session.ts           recording session, transcription queue, on-disk state
   openrouter.ts        API client (STT, chat, key check)
   recorder/track.ts    VAD, silence removal, chunking, time maps
   recorder/sources.ts  microphone (AudioWorklet) and system audio (helper)
-  pipeline/            merge, speaker matching, clean-up, summary, writer
-  ui/modals.ts         Réunion/Journal choice, import dialog, speaker names
-  ui/overlay.ts        always-on-top recorder pill (separate Electron window)
+  recorder/helper.ts   download and checksum of the macOS helper
   recorder/decode.ts   audio file → 16 kHz PCM (helper `--decode`, Web Audio fallback)
+  recorder/voice-memos.ts  iPhone Voice Memos inbox (macOS)
+  pipeline/            merge, speaker matching, clean-up, summary, journal, prompts (EN + FR)
+  ui/                  start and import dialogs, speaker names, overlay pill, mobile recorder
 native/macos/          Swift Core Audio tap helper
 ```
 
 ## Roadmap
 
-- Windows and Linux system audio helpers (the overlay and import already work there if the Electron remote module is available; import then decodes with Web Audio)
+- Windows and Linux system audio helpers
 - Live transcript while recording
-- "Ask this meeting" chat
-- Auto-title from the calendar
+- "Ask your meetings" chat across the vault
+- Auto-title and participants from the calendar
 
 ## License
 

@@ -1,9 +1,10 @@
 {
-  "id": "dictee",
-  "name": "Dictée",
+  "id": "muesli",
+  "name": "Muesli",
   "version": "0.1.0",
   "minAppVersion": "1.11.4",
-  "description": "Record meetings (Mac system audio + mic) or spoken journal entries: diarized transcript and AI summary in your vault, journal bullets in your daily note.",
+  "description": "AI meeting notes without a bot: records your mic and your Mac's audio, then writes a diarized transcript, a summary and action items into your vault. Also turns spoken journal entries into daily-note bullets.",
   "author": "Kevin",
+  "authorUrl": "https://github.com/Azilone",
   "isDesktopOnly": false
 }

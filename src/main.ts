@@ -17,21 +17,23 @@ import { formatClock, type Utterance } from './pipeline/merge';
 import { processMeeting } from './pipeline/process';
 import { DEFAULT_TEMPLATES } from './pipeline/prompts';
 import type { Person } from './pipeline/speakers';
-import { decodeFile, isAudioPath } from './recorder/decode';
+import { AUDIO_EXTENSIONS, decodeFile, isAudioPath } from './recorder/decode';
 import { RecordingSession, TranscriptionQueue, importRecording, loadState, saveState, type MeetingKind, type MeetingState } from './session';
 import { DEFAULT_SETTINGS, MeetingSettingTab, type MeetingSettings } from './settings';
 import { ImportMeetingModal, SpeakerNamesModal, StartChoiceModal, type ImportOptions, type StartOptions } from './ui/modals';
 import { RecorderOverlay, type OverlayAction } from './ui/overlay';
 import { RECORDER_VIEW, RecorderView } from './ui/recorder-view';
 import { NoAccessError, listNewMemos, memoKind } from './recorder/voice-memos';
+import { ensureHelper } from './recorder/helper';
+import { formatUsd, t } from './i18n';
 
-/** Kept from the plugin's former name so the stored OpenRouter key survives the rename. */
 /** Audio formats Obsidian plays in a note; others are converted to MP3 on import. */
 const PLAYABLE = ['m4a', 'mp3', 'wav', 'ogg', 'oga', 'opus', 'webm', 'flac', 'mp4', 'aac'];
 
+/** Kept from the plugin's former name so the stored OpenRouter key survives the rename. */
 const SECRET_ID = 'meeting-notes-openrouter';
 
-export default class DicteePlugin extends Plugin {
+export default class MuesliPlugin extends Plugin {
 	settings!: MeetingSettings;
 	api!: OpenRouter;
 	session: RecordingSession | null = null;
@@ -56,7 +58,7 @@ export default class DicteePlugin extends Plugin {
 
 		this.addSettingTab(new MeetingSettingTab(this.app, this));
 		this.registerView(RECORDER_VIEW, (leaf) => new RecorderView(leaf, this));
-		this.ribbonEl = this.addRibbonIcon('mic', Platform.isMobile ? 'Enregistreur' : 'Enregistrer (réunion ou journal)', () => {
+		this.ribbonEl = this.addRibbonIcon('mic', Platform.isMobile ? t.recorder : t.recordMeetingOrJournal, () => {
 			// On the phone the recorder screen (big button) is the way in.
 			if (Platform.isMobile) void this.openRecorder();
 			else if (this.session) this.showRecorderMenu(this.ribbonEl);
@@ -70,7 +72,7 @@ export default class DicteePlugin extends Plugin {
 
 		this.addCommand({
 			id: 'start',
-			name: 'Enregistrer (réunion ou journal)',
+			name: t.recordMeetingOrJournal,
 			icon: 'mic',
 			checkCallback: (checking) => {
 				if (this.session) return false;
@@ -80,13 +82,13 @@ export default class DicteePlugin extends Plugin {
 		});
 		this.addCommand({
 			id: 'open-recorder',
-			name: 'Ouvrir l’enregistreur',
+			name: t.openRecorder,
 			icon: 'mic',
 			callback: () => void this.openRecorder(),
 		});
 		this.addCommand({
 			id: 'voice-note',
-			name: 'Enregistrer une note vocale',
+			name: t.recordVoiceNote,
 			icon: 'audio-lines',
 			checkCallback: (checking) => {
 				if (this.session) return false;
@@ -96,7 +98,7 @@ export default class DicteePlugin extends Plugin {
 		});
 		this.addCommand({
 			id: 'stop',
-			name: 'Terminer la réunion',
+			name: t.endMeeting,
 			icon: 'square',
 			checkCallback: (checking) => {
 				if (!this.session) return false;
@@ -106,7 +108,7 @@ export default class DicteePlugin extends Plugin {
 		});
 		this.addCommand({
 			id: 'pause',
-			name: 'Mettre en pause / reprendre l’enregistrement',
+			name: t.pauseResume,
 			icon: 'pause',
 			checkCallback: (checking) => {
 				if (!this.session) return false;
@@ -116,7 +118,7 @@ export default class DicteePlugin extends Plugin {
 		});
 		this.addCommand({
 			id: 'mark',
-			name: 'Marquer ce moment',
+			name: t.markMoment,
 			icon: 'bookmark',
 			editorCheckCallback: (checking, editor) => {
 				if (!this.session) return false;
@@ -126,13 +128,13 @@ export default class DicteePlugin extends Plugin {
 		});
 		this.addCommand({
 			id: 'import',
-			name: 'Importer un enregistrement audio',
+			name: t.importAudio,
 			icon: 'file-audio',
 			callback: () => void this.importFromDialog(),
 		});
 		this.addCommand({
 			id: 'show-overlay',
-			name: 'Afficher l’overlay d’enregistrement',
+			name: t.showOverlay,
 			icon: 'picture-in-picture-2',
 			checkCallback: (checking) => {
 				if (!this.session) return false;
@@ -142,7 +144,7 @@ export default class DicteePlugin extends Plugin {
 		});
 		this.addCommand({
 			id: 'reprocess',
-			name: 'Retraiter la réunion (transcript + résumé)',
+			name: t.reprocessCommand,
 			icon: 'refresh-cw',
 			checkCallback: (checking) => {
 				const folder = this.activeMeetingFolder();
@@ -161,7 +163,7 @@ export default class DicteePlugin extends Plugin {
 				if (file instanceof TFile && isAudioPath(file.path) && file.basename !== 'audio') {
 					menu.addItem((i) =>
 						i
-							.setTitle('Créer une réunion depuis cet audio')
+							.setTitle(t.meetingFromAudio)
 							.setIcon('file-audio')
 							.onClick(() => void this.importAudio(file)),
 					);
@@ -171,7 +173,7 @@ export default class DicteePlugin extends Plugin {
 				if (!this.isMeetingFolder(folder)) return;
 				menu.addItem((i) =>
 					i
-						.setTitle('Retraiter la réunion')
+						.setTitle(t.reprocessMenu)
 						.setIcon('refresh-cw')
 						.onClick(() => void this.reprocess(folder)),
 				);
@@ -207,10 +209,10 @@ export default class DicteePlugin extends Plugin {
 		const n = new Notice('', 0);
 		n.messageEl.empty();
 		n.messageEl.createDiv({
-			text: files.length === 1 ? `Nouvel enregistrement : ${files[0].name}` : `${files.length} enregistrements à traiter`,
+			text: files.length === 1 ? t.newRecording(files[0].name) : t.recordingsToProcess(files.length),
 		});
 		n.messageEl
-			.createEl('button', { text: 'Traiter', cls: 'mod-cta mn-notice-btn' })
+			.createEl('button', { text: t.process, cls: 'mod-cta mn-notice-btn' })
 			.addEventListener('click', async () => {
 				n.hide();
 				for (const f of files) await this.importAudio(f);
@@ -238,9 +240,9 @@ export default class DicteePlugin extends Plugin {
 			const n = new Notice('', 0);
 			n.messageEl.empty();
 			n.messageEl.createDiv({
-				text: 'Pour lire les mémos Dictaphone, donne l’accès complet au disque à Obsidian (puis redémarre Obsidian).',
+				text: t.fullDiskAccess,
 			});
-			n.messageEl.createEl('button', { text: 'Ouvrir les réglages', cls: 'mod-cta mn-notice-btn' }).addEventListener('click', () => {
+			n.messageEl.createEl('button', { text: t.openSystemSettings, cls: 'mod-cta mn-notice-btn' }).addEventListener('click', () => {
 				n.hide();
 				// eslint-disable-next-line @typescript-eslint/no-var-requires
 				require('electron').shell?.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles');
@@ -256,7 +258,7 @@ export default class DicteePlugin extends Plugin {
 			const templates = await this.templateNames();
 			await this.importAudio(memo.path, {
 				kind,
-				title: kind === 'meeting' ? memo.title : 'Mémo',
+				title: kind === 'meeting' ? memo.title : t.memo,
 				startedAt: memo.recordedAt.toISOString(),
 				language: st.language,
 				template: st.lastTemplate || templates[0],
@@ -294,6 +296,15 @@ export default class DicteePlugin extends Plugin {
 	get helperPath(): string {
 		const base = this.vaultBasePath();
 		return base ? `${base}/${this.manifest.dir}/meeting-tap` : '';
+	}
+
+	/** Fetch the macOS helper if needed; failures are reported and the caller degrades gracefully. */
+	private async installHelper() {
+		try {
+			await ensureHelper(this.helperPath, this.manifest.version);
+		} catch (e) {
+			console.error('[muesli] helper install failed', e);
+		}
 	}
 
 	// ─── Templates ───
@@ -342,7 +353,7 @@ export default class DicteePlugin extends Plugin {
 		}
 	}
 
-	/** `Réunions/YYYY-MM-DD HHmm Title`, suffixed when it already exists; created on disk. */
+	/** `<meetings folder>/YYYY-MM-DD HHmm Title`, suffixed when it already exists; created on disk. */
 	private async newMeetingFolder(title: string, when: Moment, kind: MeetingKind | 'auto' = 'meeting'): Promise<string> {
 		const safeTitle = title.replace(/[\\/:*?"<>|#^[\]]/g, ' ').replace(/\s+/g, ' ').trim();
 		const root = kind === 'meeting' ? this.settings.rootFolder : this.settings.voiceFolder;
@@ -359,9 +370,9 @@ export default class DicteePlugin extends Plugin {
 		if (this.apiKey()) return true;
 		const n = new Notice('', 10000);
 		n.messageEl.empty();
-		n.messageEl.createDiv({ text: 'Ajoute ta clé OpenRouter dans les réglages (à faire sur chaque appareil).' });
+		n.messageEl.createDiv({ text: t.addKey });
 		n.messageEl
-			.createEl('button', { text: 'Ouvrir les réglages', cls: 'mod-cta mn-notice-btn' })
+			.createEl('button', { text: t.openSettings, cls: 'mod-cta mn-notice-btn' })
 			.addEventListener('click', () => {
 				n.hide();
 				this.openSettings();
@@ -382,7 +393,7 @@ export default class DicteePlugin extends Plugin {
 		new StartChoiceModal(this.app, (kind) => {
 			if (kind === 'voice') return void this.startFromRecorder('voice', { title: '', template: '' });
 			void this.beginRecording({
-				title: 'Réunion',
+				title: t.meeting,
 				language: this.settings.language,
 				mode: this.canRecordCalls ? this.settings.defaultMode : 'room',
 				template: templates.includes(this.settings.defaultTemplate) ? this.settings.defaultTemplate : templates[0],
@@ -397,7 +408,7 @@ export default class DicteePlugin extends Plugin {
 		const templates = await this.templateNames();
 		await this.beginRecording(
 			{
-				title: o.title || (kind === 'voice' ? 'Note vocale' : 'Réunion'),
+				title: o.title || (kind === 'voice' ? t.voiceNote : t.meeting),
 				language: this.settings.language,
 				mode: 'room',
 				template: kind === 'voice' ? '' : templates.includes(o.template) ? o.template : templates[0],
@@ -433,13 +444,15 @@ export default class DicteePlugin extends Plugin {
 			kind,
 			autoTitle: o.autoTitle,
 		};
+		// A missing helper only costs the system audio: the session falls back to the mic.
+		if (o.mode === 'call') await this.installHelper();
 		const session = new RecordingSession(this.app, this.api, this.settings, state, this.helperPath);
 		session.onChange = () => this.render();
 		try {
 			await session.start();
 		} catch (e) {
 			await session.stop().catch(() => {});
-			new Notice(`Impossible de démarrer l’enregistrement : ${(e as Error).message}`, 10000);
+			new Notice(t.cannotStart((e as Error).message), 10000);
 			return;
 		}
 		this.session = session;
@@ -477,12 +490,12 @@ export default class DicteePlugin extends Plugin {
 		this.clearIdle();
 		if (reason) new Notice(reason, 10000);
 		const { folder } = session.state;
-		this.processing.set(folder, 'Finalisation de l’audio…');
+		this.processing.set(folder, t.finalizingAudio);
 		this.render();
 		try {
 			await session.stop();
 		} catch (e) {
-			console.error('[dictee] stop failed', e);
+			console.error('[muesli] stop failed', e);
 		}
 		await this.runPipeline(session.state, session.queue);
 	}
@@ -502,7 +515,7 @@ export default class DicteePlugin extends Plugin {
 		const ok = this.overlay.show();
 		if (!ok) {
 			this.overlay = null;
-			if (explicit || !this.overlayWarned) new Notice('Overlay indisponible dans cette version d’Obsidian.');
+			if (explicit || !this.overlayWarned) new Notice(t.overlayUnavailable);
 			this.overlayWarned = true;
 			return;
 		}
@@ -516,8 +529,8 @@ export default class DicteePlugin extends Plugin {
 			time: formatClock(s.elapsed),
 			paused: s.paused,
 			levels: [s.level('mic'), ...(s.state.mode === 'call' ? [s.systemError ? null : s.level('system')] : [])],
-			sent: `${Math.round(sent / 60)} min envoyées`,
-			cost: cost >= 0.005 ? `${cost.toFixed(2).replace('.', ',')} $` : '',
+			sent: t.minutesSent(Math.round(sent / 60)),
+			cost: cost >= 0.005 ? formatUsd(cost) : '',
 			idle: this.idle ? { minutes: this.idle.minutes, left: Math.max(0, Math.round((this.idle.deadline - performance.now()) / 1000)) } : null,
 		};
 	}
@@ -550,7 +563,7 @@ export default class DicteePlugin extends Plugin {
 		const st = this.settings;
 		if (!s || s.paused) return;
 		if (st.maxMinutes > 0 && s.elapsed >= st.maxMinutes * 60) {
-			void this.stopMeeting(`Durée maximale atteinte (${st.maxMinutes} min) : réunion terminée automatiquement.`);
+			void this.stopMeeting(t.maxDuration(st.maxMinutes));
 			return;
 		}
 		if (st.idleMinutes <= 0) return;
@@ -559,7 +572,7 @@ export default class DicteePlugin extends Plugin {
 				// Someone spoke again: question withdrawn.
 				this.clearIdle();
 			} else if (performance.now() >= this.idle.deadline) {
-				void this.stopMeeting(`Aucune parole depuis ${Math.round(s.idleSeconds / 60)} min : réunion terminée automatiquement.`);
+				void this.stopMeeting(t.noSpeechStop(Math.round(s.idleSeconds / 60)));
 			}
 			return;
 		}
@@ -571,10 +584,10 @@ export default class DicteePlugin extends Plugin {
 		const notice = new Notice('', 0);
 		const el = notice.messageEl;
 		el.empty();
-		el.createDiv({ text: `Plus de parole depuis ${minutes} min — toujours en réunion ? Sans réponse, l’enregistrement s’arrête dans ${grace} min.` });
+		el.createDiv({ text: t.stillInMeeting(minutes, grace) });
 		const row = el.createDiv({ cls: 'mn-notice-row' });
-		row.createEl('button', { text: 'Continuer', cls: 'mod-cta mn-notice-btn' }).addEventListener('click', () => this.continueMeeting());
-		row.createEl('button', { text: 'Terminer', cls: 'mod-warning mn-notice-btn' }).addEventListener('click', () => void this.stopMeeting());
+		row.createEl('button', { text: t.continue, cls: 'mod-cta mn-notice-btn' }).addEventListener('click', () => this.continueMeeting());
+		row.createEl('button', { text: t.end, cls: 'mod-warning mn-notice-btn' }).addEventListener('click', () => void this.stopMeeting());
 		this.idle = { minutes, deadline: performance.now() + grace * 60_000, notice };
 		this.overlay?.show();
 	}
@@ -640,7 +653,7 @@ export default class DicteePlugin extends Plugin {
 
 	/**
 	 * `background`: nobody is waiting (auto-import) — no questions, nothing opened.
-	 * One notice per recording: « transcription en cours » then « terminée · prix ».
+	 * One notice per recording: “transcribing…”, then “done · price”.
 	 */
 	private async runPipeline(state: MeetingState, queue: TranscriptionQueue, background = false, notice?: ProgressNotice) {
 		const { folder } = state;
@@ -665,7 +678,7 @@ export default class DicteePlugin extends Plugin {
 			state.status = 'error';
 			state.error = (e as Error).message;
 			await saveState(this.app, state).catch(() => {});
-			console.error('[dictee] processing failed', e);
+			console.error('[muesli] processing failed', e);
 			progress.fail((e as Error).message);
 		} finally {
 			this.processing.delete(folder);
@@ -675,7 +688,7 @@ export default class DicteePlugin extends Plugin {
 	}
 
 	private recordingLabel(state: MeetingState): string {
-		return state.kind === 'voice' ? 'Journal' : state.kind === 'auto' ? 'Mémo' : state.title;
+		return state.kind === 'voice' ? t.journal : state.kind === 'auto' ? t.memo : state.title;
 	}
 
 	/**
@@ -686,7 +699,7 @@ export default class DicteePlugin extends Plugin {
 		const from = this.app.vault.getAbstractFileByPath(state.folder);
 		if (!(from instanceof TFolder)) return;
 		const stamp = from.name.match(/^\d{4}-\d{2}-\d{2} \d{4}/)?.[0] ?? window.moment(state.startedAt).format('YYYY-MM-DD HHmm');
-		const title = kind === 'voice' ? 'Journal' : 'Réunion';
+		const title = kind === 'voice' ? t.journal : t.meeting;
 		const root = normalizePath(kind === 'voice' ? this.settings.voiceFolder : this.settings.rootFolder);
 		await this.ensureFolder(root);
 		let to = normalizePath(`${root}/${stamp} ${title}`);
@@ -720,12 +733,12 @@ export default class DicteePlugin extends Plugin {
 			/* no remote */
 		}
 		if (!Platform.isDesktopApp || !remote?.dialog) {
-			return new Notice(`Dépose le fichier audio dans « ${this.settings.importFolder} » ou fais un clic droit dessus dans le coffre.`, 10000);
+			return new Notice(t.dropFileHint(this.settings.importFolder), 10000);
 		}
 		const res = await remote.dialog.showOpenDialog({
-			title: 'Importer un enregistrement',
+			title: t.importDialogTitle,
 			properties: ['openFile'],
-			filters: [{ name: 'Audio', extensions: ['m4a', 'mp3', 'wav', 'aac', 'ogg', 'opus', 'webm', 'mp4', 'flac', 'aiff', 'caf', 'qta', 'mov'] }],
+			filters: [{ name: 'Audio', extensions: AUDIO_EXTENSIONS }],
 		});
 		const abs: string | undefined = res?.filePaths?.[0];
 		if (!abs) return;
@@ -757,7 +770,7 @@ export default class DicteePlugin extends Plugin {
 			try {
 				mtime = fs.statSync(source).mtime;
 			} catch {
-				return new Notice(`Fichier introuvable : ${source}`);
+				return new Notice(t.fileNotFound(source));
 			}
 		}
 		ext = ext.toLowerCase() || 'm4a';
@@ -811,7 +824,7 @@ export default class DicteePlugin extends Plugin {
 			this.processing.set(folder, text);
 			this.render();
 		};
-		step('Décodage de l’audio…');
+		step(t.decodingAudio);
 		try {
 			let file = source instanceof TFile ? source : null;
 			const dest = normalizePath(`${folder}/audio.${ext}`);
@@ -826,12 +839,13 @@ export default class DicteePlugin extends Plugin {
 			// Formats Obsidian can't play (Voice Memos `.qta`…) are kept as an MP3 made while decoding.
 			const archive = this.settings.keepAudio && !PLAYABLE.includes(ext) && !(file && inbox) ? normalizePath(`${folder}/audio.mp3`) : undefined;
 			const readBytes = async () => (file ? this.app.vault.readBinary(file) : this.readDiskFile(source as string));
+			if (Platform.isDesktopApp) await this.installHelper();
 			const basePath = this.vaultBasePath();
 			const abs = file ? (basePath ? `${basePath}/${file.path}` : '') : (source as string);
 			const queue = await importRecording(this.app, this.api, this.settings, state, (onPcm) =>
 				decodeFile(Platform.isDesktopApp ? this.helperPath : '', abs, readBytes, {
 					onPcm,
-					progress: (r) => step(`Découpage de l’audio… ${Math.round(r * 100)} %`),
+					progress: (r) => step(t.splittingAudio(Math.round(r * 100))),
 				}),
 				archive,
 			);
@@ -843,7 +857,7 @@ export default class DicteePlugin extends Plugin {
 			state.status = 'error';
 			state.error = (e as Error).message;
 			await saveState(this.app, state).catch(() => {});
-			console.error('[dictee] import failed', e);
+			console.error('[muesli] import failed', e);
 			notice.fail((e as Error).message);
 		}
 	}
@@ -855,7 +869,7 @@ export default class DicteePlugin extends Plugin {
 
 	async reprocess(folder: string) {
 		const state = await loadState(this.app, folder);
-		if (!state) return new Notice('Pas de données d’enregistrement pour ce dossier.');
+		if (!state) return new Notice(t.noRecordingData);
 		if (state.status === 'recording') state.status = 'processing';
 		const queue = new TranscriptionQueue(this.app, this.api, this.settings, state);
 		await this.runPipeline(state, queue);
@@ -885,8 +899,8 @@ export default class DicteePlugin extends Plugin {
 			const n = new Notice('', 0);
 			const el = n.messageEl;
 			el.empty();
-			el.createDiv({ text: `La réunion « ${state.title} » a été interrompue.` });
-			const btn = el.createEl('button', { text: 'Terminer le traitement', cls: 'mod-cta mn-notice-btn' });
+			el.createDiv({ text: t.interrupted(state.title) });
+			const btn = el.createEl('button', { text: t.finishProcessing, cls: 'mod-cta mn-notice-btn' });
 			btn.addEventListener('click', () => {
 				n.hide();
 				void this.reprocess(child.path);
@@ -902,30 +916,30 @@ export default class DicteePlugin extends Plugin {
 		const menu = new Menu();
 		menu.addItem((i) =>
 			i
-				.setTitle(s.paused ? 'Reprendre' : 'Pause')
+				.setTitle(s.paused ? t.resume : t.pause)
 				.setIcon(s.paused ? 'play' : 'pause')
 				.onClick(() => s.setPaused(!s.paused)),
 		);
 		menu.addItem((i) =>
 			i
-				.setTitle('Ouvrir les notes')
+				.setTitle(t.openNotes)
 				.setIcon('file-text')
 				.onClick(() => void s.openNotes()),
 		);
 		menu.addItem((i) =>
 			i
-				.setTitle('Marquer ce moment')
+				.setTitle(t.markMoment)
 				.setIcon('bookmark')
 				.onClick(() => {
 					const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 					if (view?.file?.path === s.notesPath) this.insertMarker(view.editor);
-					else new Notice('Ouvre les notes de la réunion pour marquer un moment.');
+					else new Notice(t.openNotesToMark);
 				}),
 		);
 		menu.addSeparator();
 		menu.addItem((i) =>
 			i
-				.setTitle('Terminer la réunion')
+				.setTitle(t.endMeeting)
 				.setIcon('square')
 				.setWarning(true)
 				.onClick(() => void this.stopMeeting()),
@@ -950,9 +964,9 @@ export default class DicteePlugin extends Plugin {
 		if (s) {
 			el.createSpan({ cls: 'mn-dot' });
 			el.createSpan({ cls: 'mn-time', text: formatClock(s.elapsed) });
-			this.meter(el, s.level('mic'), 'Micro');
-			if (s.state.mode === 'call') this.meter(el, s.systemError ? null : s.level('system'), 'Son de l’ordinateur');
-			el.setAttribute('aria-label', s.paused ? 'En pause — cliquer pour les options' : 'Enregistrement — cliquer pour les options');
+			this.meter(el, s.level('mic'), t.microphone);
+			if (s.state.mode === 'call') this.meter(el, s.systemError ? null : s.level('system'), t.computerAudio);
+			el.setAttribute('aria-label', s.paused ? t.statusPaused : t.statusRecording);
 		} else if (this.processing.size) {
 			const icon = el.createSpan({ cls: 'mn-spin' });
 			setIcon(icon, 'loader');
@@ -961,7 +975,7 @@ export default class DicteePlugin extends Plugin {
 		}
 		el.toggle(!!s || this.processing.size > 0);
 		setIcon(this.ribbonEl, s ? 'square' : 'mic');
-		this.ribbonEl.setAttribute('aria-label', s ? 'Enregistrement en cours' : Platform.isMobile ? 'Enregistreur' : 'Enregistrer (réunion ou journal)');
+		this.ribbonEl.setAttribute('aria-label', s ? t.recordingInProgress : Platform.isMobile ? t.recorder : t.recordMeetingOrJournal);
 		this.ribbonEl.toggleClass('mn-ribbon-recording', !!s);
 		this.syncPlayers();
 		for (const leaf of this.app.workspace.getLeavesOfType(RECORDER_VIEW)) {
@@ -1005,8 +1019,8 @@ class Player {
 		this.el.createSpan({ cls: 'mn-dot' });
 		this.time = this.el.createSpan({ cls: 'mn-time' });
 		this.meters = this.el.createSpan({ cls: 'mn-meters' });
-		this.toggle = this.button('pause', 'Pause', actions.onToggle);
-		this.button('square', 'Terminer la réunion', actions.onStop).addClass('mod-stop');
+		this.toggle = this.button('pause', t.pause, actions.onToggle);
+		this.button('square', t.endMeeting, actions.onStop).addClass('mod-stop');
 	}
 
 	private button(icon: string, label: string, onClick: () => void) {
@@ -1022,7 +1036,7 @@ class Player {
 		if (s.paused !== this.paused) {
 			this.paused = s.paused;
 			setIcon(this.toggle, s.paused ? 'play' : 'pause');
-			this.toggle.setAttribute('aria-label', s.paused ? 'Reprendre' : 'Pause');
+			this.toggle.setAttribute('aria-label', s.paused ? t.resume : t.pause);
 		}
 		const levels = [s.level('mic'), ...(s.state.mode === 'call' ? [s.systemError ? null : s.level('system')] : [])];
 		while (this.meters.childElementCount < levels.length) {
@@ -1046,22 +1060,18 @@ class ProgressNotice {
 
 	constructor(private label: string) {
 		this.notice.messageEl.addClass('mn-notice');
-		this.notice.setMessage(`🎙️ ${label} — transcription en cours…`);
+		this.notice.setMessage(t.progressRunning(label));
 	}
 
 	done(cost: number, open: () => void, label = this.label) {
 		this.notice.hide();
-		const n = new Notice(`✓ ${label} — transcription terminée${cost > 0 ? ` · ${formatCost(cost)}` : ''}`, 8000);
+		const n = new Notice(t.progressDone(label, cost > 0 ? formatUsd(cost, cost < 0.1 ? 3 : 2) : ''), 8000);
 		n.messageEl.addClass('mn-notice', 'mod-clickable');
 		n.messageEl.addEventListener('click', open);
 	}
 
 	fail(message: string) {
 		this.notice.hide();
-		new Notice(`✗ ${this.label} — échec : ${message}`, 15000);
+		new Notice(t.progressFailed(this.label, message), 15000);
 	}
-}
-
-function formatCost(usd: number): string {
-	return `${usd.toFixed(usd < 0.1 ? 3 : 2).replace('.', ',')} $`;
 }

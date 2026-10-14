@@ -7,7 +7,8 @@ import type { MeetingSettings } from '../settings';
 import { LANGUAGES } from '../settings';
 import { formatClock, mergeChunks, toRawLines, type Utterance } from './merge';
 import { parseEntry, renderEntry, type JournalEntry } from './journal';
-import { KIND_PROMPT, SPEAKERS_PROMPT, cleanPrompt, summaryPrompt, titlePrompt, voicePrompt } from './prompts';
+import { DEFAULT_TEMPLATES, INPUT, KIND_PROMPT, SPEAKERS_PROMPT, cleanPrompt, summaryPrompt, titlePrompt, voicePrompt } from './prompts';
+import { t } from '../i18n';
 import { nameMap, normalizePeople, type Person } from './speakers';
 
 export interface ProcessHooks {
@@ -84,7 +85,7 @@ async function classify(api: OpenRouter, llm: string, utts: Utterance[], duratio
 					{ role: 'system', content: KIND_PROMPT },
 					{
 						role: 'user',
-						content: `Durée : ${Math.round(duration / 60)} min\nVoix détectées (≥ 10 % du temps de parole) : ${voices}\n\n${toRawLines(utts).join('\n').slice(0, 8000)}`,
+						content: `${INPUT.duration}${INPUT.sep}${Math.round(duration / 60)} min\n${INPUT.voices}${INPUT.sep}${voices}\n\n${toRawLines(utts).join('\n').slice(0, 8000)}`,
 					},
 				],
 				{ json: true },
@@ -92,7 +93,7 @@ async function classify(api: OpenRouter, llm: string, utts: Utterance[], duratio
 		);
 		if (reply.kind === 'meeting' || reply.kind === 'journal') return reply.kind === 'meeting' ? 'meeting' : 'voice';
 	} catch (e) {
-		console.warn('[dictee] kind detection failed, using the voice count', e);
+		console.warn('[muesli] kind detection failed, using the voice count', e);
 	}
 	return voices >= 2 ? 'meeting' : 'voice';
 }
@@ -110,24 +111,22 @@ export async function processMeeting(
 	const spentBefore = api.spent;
 
 	// 1. Finish transcription (retry failed chunks once more).
-	hooks.progress('Transcription…');
+	hooks.progress(t.stepTranscribing);
 	await queue.kick(true);
 	const failed = state.chunks.filter((c) => c.status !== 'done');
 	if (failed.length) {
-		throw new Error(
-			`${failed.length} segment(s) n’ont pas pu être transcrits (${failed[0].error ?? 'erreur inconnue'}). Relance « Retraiter la réunion » plus tard.`,
-		);
+		throw new Error(t.chunksFailed(failed.length, failed[0].error ?? t.unknownError));
 	}
 	const results = await Promise.all(
 		state.chunks.map(async (meta) => ({ meta, result: await readChunkResult(app, folder, meta) })),
 	);
 	let cost = state.chunks.reduce((n, c) => n + (c.cost ?? 0), 0);
 	const utts = mergeChunks(results, micIsMe(state));
-	if (!utts.length) throw new Error('Aucune parole détectée dans l’enregistrement.');
+	if (!utts.length) throw new Error(t.noSpeech);
 
 	// 1b. Voice Memos inbox: meeting or journal, decided from what was said.
 	if (state.kind === 'auto') {
-		hooks.progress('Analyse de l’enregistrement…');
+		hooks.progress(t.stepAnalyzing);
 		const kind = await classify(api, llm, utts, state.duration);
 		await (hooks.relocate ?? (async () => {}))(kind);
 		folder = state.folder;
@@ -137,7 +136,7 @@ export async function processMeeting(
 	// 2. Who is who.
 	let people: Person[] = [];
 	if (utts.some((u) => u.label !== 'me')) {
-		hooks.progress('Identification des intervenants…');
+		hooks.progress(t.stepSpeakers);
 		let raw: unknown = null;
 		try {
 			raw = parseJson(
@@ -147,17 +146,17 @@ export async function processMeeting(
 				], { json: true }),
 			);
 		} catch (e) {
-			console.warn('[dictee] speaker grouping failed, keeping raw labels', e);
+			console.warn('[muesli] speaker grouping failed, keeping raw labels', e);
 		}
 		people = normalizePeople(raw, utts);
 		if (hooks.askNames) people = await hooks.askNames(people, utts);
 	}
-	const names = nameMap(people, settings.myName);
+	const names = nameMap(people, settings.myName, t.speaker);
 	state.speakerNames = names;
 	await saveState(app, state);
 
 	// 3. Clean transcript, in parallel blocks.
-	hooks.progress('Mise au propre du transcript…');
+	hooks.progress(t.stepCleaning);
 	const lang = LANGUAGES[state.language] ?? '';
 	const rawLines = toRawLines(utts, names);
 	const cleaned = await mapLimit(blocks(rawLines, 14000), 3, (block) =>
@@ -169,7 +168,7 @@ export async function processMeeting(
 	const transcript = cleaned.map((c) => c.trim()).join('\n\n');
 
 	if (state.kind === 'voice') {
-		hooks.progress('Résumé pour le journal…');
+		hooks.progress(t.stepJournal);
 		const raw = await api.chat(
 			llm,
 			[
@@ -178,7 +177,7 @@ export async function processMeeting(
 			],
 			{ json: true },
 		);
-		hooks.progress('Écriture dans la note du jour…');
+		hooks.progress(t.stepDaily);
 		const daily = await writeVoiceNote(app, settings, state, transcript, parseEntry(raw));
 		state.status = 'done';
 		state.error = undefined;
@@ -187,7 +186,7 @@ export async function processMeeting(
 	}
 
 	// 4. Summary.
-	hooks.progress('Rédaction du résumé…');
+	hooks.progress(t.stepSummary);
 	const notesFile = app.vault.getAbstractFileByPath(normalizePath(`${folder}/Notes.md`));
 	const notes = notesFile instanceof TFile ? stripFrontmatter(await app.vault.read(notesFile)).trim() : '';
 	const template = await loadTemplate(app, settings, state.template);
@@ -197,15 +196,15 @@ export async function processMeeting(
 		{
 			role: 'user',
 			content: [
-				`Réunion : ${state.title}`,
-				`Date : ${window.moment(state.startedAt).format('LLLL')}`,
-				`Durée : ${Math.round(state.duration / 60)} min`,
-				`Participants : ${participants.join(', ')}`,
+				`${INPUT.meeting}${INPUT.sep}${state.title}`,
+				`${INPUT.date}${INPUT.sep}${window.moment(state.startedAt).format('LLLL')}`,
+				`${INPUT.duration}${INPUT.sep}${Math.round(state.duration / 60)} min`,
+				`${INPUT.participants}${INPUT.sep}${participants.join(', ')}`,
 				'',
-				'=== NOTES BRUTES ===',
-				notes ? annotateNotes(notes, state.noteTimes) : '(aucune note)',
+				INPUT.notes,
+				notes ? annotateNotes(notes, state.noteTimes) : INPUT.noNotes,
 				'',
-				'=== TRANSCRIPT ===',
+				INPUT.transcript,
 				transcript,
 			].join('\n'),
 		},
@@ -213,7 +212,7 @@ export async function processMeeting(
 
 	// 5. Files.
 	if (state.autoTitle) {
-		hooks.progress('Choix du titre…');
+		hooks.progress(t.stepTitle);
 		try {
 			const title = (
 				await api.chat(llm, [
@@ -225,10 +224,10 @@ export async function processMeeting(
 				.replace(/^["«\s#]+|["»\s.]+$/g, '');
 			if (title) await applyTitle(app, state, title);
 		} catch (e) {
-			console.warn('[dictee] title generation failed, keeping the placeholder', e);
+			console.warn('[muesli] title generation failed, keeping the placeholder', e);
 		}
 	}
-	hooks.progress('Écriture des fichiers…');
+	hooks.progress(t.stepFiles);
 	const files = await writeMeetingFiles(app, state, { transcript, summary: summary.trim(), participants });
 	state.status = 'done';
 	state.error = undefined;
@@ -258,10 +257,9 @@ async function applyTitle(app: App, state: MeetingState, title: string) {
 }
 
 export async function loadTemplate(app: App, settings: MeetingSettings, name: string): Promise<string> {
-	const { DEFAULT_TEMPLATES } = await import('./prompts');
 	const file = app.vault.getAbstractFileByPath(normalizePath(`${settings.templatesFolder}/${name}.md`));
 	if (file instanceof TFile) return stripFrontmatter(await app.vault.read(file));
-	return DEFAULT_TEMPLATES[name] ?? DEFAULT_TEMPLATES['Général'];
+	return DEFAULT_TEMPLATES[name] ?? Object.values(DEFAULT_TEMPLATES)[0];
 }
 
 async function upsert(app: App, path: string, content: string): Promise<TFile> {
@@ -289,10 +287,10 @@ export async function writeMeetingFiles(
 	};
 	const meta = {
 		date: window.moment(state.startedAt).format('YYYY-MM-DDTHH:mm'),
-		durée: `${Math.max(1, Math.round(state.duration / 60))} min`,
+		[t.fm.duration]: `${Math.max(1, Math.round(state.duration / 60))} min`,
 		participants: out.participants,
-		langue: state.language || 'auto',
-		tags: ['réunion'],
+		[t.fm.language]: state.language || 'auto',
+		tags: [t.fm.meetingTag],
 	};
 
 	const transcript = await upsert(
@@ -307,11 +305,11 @@ export async function writeMeetingFiles(
 			: undefined;
 	const audioPath = audioFile?.path ?? p('audio.mp3');
 	const hasAudio = !!audioFile;
-	const summaryPath = p('Résumé.md');
+	const summaryPath = p(`${t.summaryFile}.md`);
 	const nav = [
 		link(transcript.path, summaryPath, 'Transcript'),
-		link(p('Notes.md'), summaryPath, 'Notes brutes'),
-		hasAudio ? link(audioPath, summaryPath, 'Audio') : null,
+		link(p('Notes.md'), summaryPath, t.rawNotes),
+		hasAudio ? link(audioPath, summaryPath, t.audio) : null,
 	]
 		.filter(Boolean)
 		.join(' · ');
@@ -319,7 +317,7 @@ export async function writeMeetingFiles(
 	const summary = await upsert(
 		app,
 		summaryPath,
-		frontmatter({ ...meta, type: 'réunion' }) + `# ${state.title}\n\n${nav}${audioEmbed}\n\n${out.summary}\n`,
+		frontmatter({ ...meta, type: t.fm.meetingType }) + `# ${state.title}\n\n${nav}${audioEmbed}\n\n${out.summary}\n`,
 	);
 	return { transcript, summary };
 }
@@ -345,8 +343,8 @@ export async function writeVoiceNote(
 ): Promise<TFile> {
 	const meta = {
 		date: window.moment(state.startedAt).format('YYYY-MM-DDTHH:mm'),
-		durée: `${Math.max(1, Math.round(state.duration / 60))} min`,
-		type: 'note vocale',
+		[t.fm.duration]: `${Math.max(1, Math.round(state.duration / 60))} min`,
+		type: t.fm.voiceType,
 	};
 	const transcriptFile = await upsert(
 		app,
@@ -368,7 +366,7 @@ export async function writeVoiceNote(
 			: undefined;
 	const links = [
 		app.fileManager.generateMarkdownLink(transcriptFile, file.path, undefined, 'Transcript'),
-		audio ? app.fileManager.generateMarkdownLink(audio, file.path, undefined, 'Audio') : null,
+		audio ? app.fileManager.generateMarkdownLink(audio, file.path, undefined, t.audio) : null,
 	]
 		.filter(Boolean)
 		.join(' · ');

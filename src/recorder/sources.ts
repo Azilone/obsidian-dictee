@@ -1,6 +1,7 @@
 /** Audio inputs: the microphone (Web Audio) and system output (native helper over stdout). */
 
 import { SAMPLE_RATE } from './track';
+import { t } from '../i18n';
 
 export type PcmHandler = (pcm: Int16Array) => void;
 
@@ -187,7 +188,7 @@ export class HelperSource implements AudioSource {
 		const { spawn } = require('child_process') as typeof import('child_process');
 		const fs = require('fs') as typeof import('fs');
 		if (!fs.existsSync(this.binary)) {
-			return Promise.reject(new Error(`Helper audio introuvable : ${this.binary}`));
+			return Promise.reject(new Error(t.helperNotFound(this.binary)));
 		}
 		try {
 			fs.chmodSync(this.binary, 0o755);
@@ -228,7 +229,7 @@ export class HelperSource implements AudioSource {
 						resolve();
 					} else if (msg.event === 'error') {
 						if (!started) reject(new Error(msg.message));
-						else this.onError(msg.message ?? 'Erreur de capture');
+						else this.onError(msg.message ?? t.captureError);
 					}
 					this.onEvent?.(msg);
 				}
@@ -236,8 +237,8 @@ export class HelperSource implements AudioSource {
 			proc.on('error', (e) => (started ? this.onError(e.message) : reject(e)));
 			proc.on('exit', (code) => {
 				this.proc = null;
-				if (!started) reject(new Error(`Le helper audio s'est arrêté (code ${code})`));
-				else if (!this.stopping && code !== 0) this.onError('La capture du son système s’est arrêtée');
+				if (!started) reject(new Error(t.helperExited(code)));
+				else if (!this.stopping && code !== 0) this.onError(t.captureStopped);
 				this.resolveDone(code);
 			});
 		});

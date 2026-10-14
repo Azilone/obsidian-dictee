@@ -1,5 +1,6 @@
 import { requestUrl } from 'obsidian';
 import type { SttResult } from './pipeline/merge';
+import { formatUsd, t } from './i18n';
 
 const BASE = 'https://openrouter.ai/api/v1';
 
@@ -31,8 +32,6 @@ export interface KeyInfo {
 	message: string;
 }
 
-const money = (n: number) => `${n.toFixed(2).replace('.', ',')} $`;
-
 /** Ask OpenRouter whether a key works, and how much it can still spend. */
 export async function checkKey(key: string): Promise<KeyInfo> {
 	const get = (path: string) =>
@@ -41,24 +40,24 @@ export async function checkKey(key: string): Promise<KeyInfo> {
 	try {
 		res = await get('/key');
 	} catch (e) {
-		return { ok: false, message: `Impossible de joindre OpenRouter (${(e as Error).message}).` };
+		return { ok: false, message: t.keyUnreachable((e as Error).message) };
 	}
-	if (res.status === 401 || res.status === 403) return { ok: false, message: 'Clé refusée par OpenRouter.' };
-	if (res.status >= 400) return { ok: false, message: `OpenRouter a répondu ${res.status}.` };
+	if (res.status === 401 || res.status === 403) return { ok: false, message: t.keyRejected };
+	if (res.status >= 400) return { ok: false, message: t.keyStatus(res.status) };
 	const d = res.json?.data ?? {};
 	if (typeof d.limit_remaining === 'number') {
-		const period = d.limit_reset === 'monthly' ? '/mois' : d.limit_reset === 'weekly' ? '/semaine' : d.limit_reset === 'daily' ? '/jour' : '';
-		return { ok: true, message: `Clé valide — ${money(d.limit_remaining)} restants sur ${money(d.limit)}${period}.` };
+		const period = d.limit_reset === 'monthly' ? t.perMonth : d.limit_reset === 'weekly' ? t.perWeek : d.limit_reset === 'daily' ? t.perDay : '';
+		return { ok: true, message: t.keyLimit(formatUsd(d.limit_remaining), formatUsd(d.limit), period) };
 	}
 	try {
 		const c = (await get('/credits')).json?.data;
 		if (c && typeof c.total_credits === 'number') {
-			return { ok: true, message: `Clé valide — ${money(c.total_credits - c.total_usage)} de crédit restant.` };
+			return { ok: true, message: t.keyCredit(formatUsd(c.total_credits - c.total_usage)) };
 		}
 	} catch {
 		/* credits are optional */
 	}
-	return { ok: true, message: 'Clé valide.' };
+	return { ok: true, message: t.keyValid };
 }
 
 export class OpenRouter {
@@ -69,7 +68,7 @@ export class OpenRouter {
 
 	private async post(path: string, body: unknown): Promise<any> {
 		const key = this.getKey();
-		if (!key) throw new OpenRouterError('Clé OpenRouter manquante (Réglages → Dictée).', 401);
+		if (!key) throw new OpenRouterError(t.keyMissing, 401);
 		let res;
 		try {
 			res = await requestUrl({
@@ -78,14 +77,14 @@ export class OpenRouter {
 				contentType: 'application/json',
 				headers: {
 					Authorization: `Bearer ${key}`,
-					'HTTP-Referer': 'https://obsidian.md',
-					'X-Title': 'Obsidian Dictée',
+					'HTTP-Referer': 'https://github.com/Azilone/obsidian-muesli',
+					'X-Title': 'Muesli for Obsidian',
 				},
 				body: JSON.stringify(body),
 				throw: false,
 			});
 		} catch (e) {
-			throw new OpenRouterError(`Réseau : ${(e as Error).message}`, 0);
+			throw new OpenRouterError(t.network((e as Error).message), 0);
 		}
 		if (res.status >= 400) {
 			let msg = res.text;
@@ -94,7 +93,7 @@ export class OpenRouter {
 			} catch {
 				/* not JSON */
 			}
-			throw new OpenRouterError(`OpenRouter ${res.status} : ${msg}`.slice(0, 400), res.status);
+			throw new OpenRouterError(`OpenRouter ${res.status}: ${msg}`.slice(0, 400), res.status);
 		}
 		return res.json;
 	}
@@ -118,7 +117,7 @@ export class OpenRouter {
 		const res = await withRetry(() => this.post('/chat/completions', body));
 		this.spent += Number(res?.usage?.cost) || 0;
 		const text = res?.choices?.[0]?.message?.content;
-		if (typeof text !== 'string') throw new OpenRouterError('Réponse vide du modèle', 502);
+		if (typeof text !== 'string') throw new OpenRouterError(t.emptyReply, 502);
 		return text;
 	}
 }

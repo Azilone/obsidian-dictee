@@ -3,3 +3,6 @@ main.js
 native/bin
 native/build
 .claude
+.DS_Store
+data.json
+*.pcm

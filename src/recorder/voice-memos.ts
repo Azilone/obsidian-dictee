@@ -53,7 +53,7 @@ function readDatabase(dir: string): Map<string, { title: string; duration: numbe
 			if (row.path) out.set(row.path.split('/').pop()!, { title: String(row.title ?? ''), duration: Number(row.duration) || 0 });
 		}
 	} catch (e) {
-		console.warn('[dictee] Voice Memos database unreadable, using file names only', e);
+		console.warn('[muesli] Voice Memos database unreadable, using file names only', e);
 	}
 	return out;
 }
@@ -70,7 +70,7 @@ export function listNewMemos(dir: string, since: Date, seen: Set<string>): Voice
 		names = fs.readdirSync(root);
 	} catch (e) {
 		const code = (e as NodeJS.ErrnoException).code;
-		if (code === 'EPERM' || code === 'EACCES') throw new NoAccessError('Accès complet au disque requis');
+		if (code === 'EPERM' || code === 'EACCES') throw new NoAccessError('Full Disk Access required');
 		if (code === 'ENOENT') return [];
 		throw e;
 	}
